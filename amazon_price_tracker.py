@@ -236,15 +236,37 @@ class AmazonPriceTracker:
             return True
         return False
     
+    def normalize_name(self, name):
+        """Normalize product name for consistent matching"""
+        import re
+        # Remove extra whitespace, convert to lowercase
+        normalized = ' '.join(name.lower().split())
+        # Remove special characters that might vary
+        normalized = re.sub(r'[^\w\s]', '', normalized)
+        return normalized
+    
+    def get_product_key(self, product):
+        """Generate a consistent product key for tracking"""
+        # Prefer ASIN if available
+        if product.get('asin') and product['asin'].strip():
+            return f"asin_{product['asin']}"
+        
+        # Fallback to normalized name + price (to handle same product at different prices)
+        normalized_name = self.normalize_name(product['name'])
+        # Use first 100 chars of name to avoid key being too long
+        return f"name_{normalized_name[:100]}_{int(product['price'])}"
+    
     def check_price_change(self, product):
         """Check if this is a new deal or price drop"""
-        product_key = product['asin'] if product['asin'] else product['name']
+        product_key = self.get_product_key(product)
         
         if not product_key:
+            print(f"⚠ No key for product: {product['name'][:50]}")
             return 'new'  # No way to track, treat as new
         
         # Check if we've seen this product before
         if product_key not in self.price_history:
+            print(f"🆕 New product: {product['name'][:50]} (key: {product_key[:50]})")
             return 'new'  # New product
         
         old_data = self.price_history[product_key]
@@ -259,25 +281,29 @@ class AmazonPriceTracker:
         if price_drop_pct >= CONFIG['price_drop_threshold']:
             product['old_price'] = old_price
             product['price_drop_pct'] = round(price_drop_pct, 1)
+            print(f"📉 Price drop: {product['name'][:50]} (₹{old_price} → ₹{product['price']})")
             return 'price_drop'
         
         # Same or higher price
         if product['price'] >= old_price:
+            print(f"✓ Same price: {product['name'][:50]} (₹{product['price']})")
             return 'same'
         
         # Small price drop (less than threshold)
+        print(f"→ Minor drop: {product['name'][:50]} (₹{old_price} → ₹{product['price']})")
         return 'minor_drop'
     
     def update_price_history(self, product):
         """Update price history for a product"""
-        product_key = product['asin'] if product['asin'] else product['name']
+        product_key = self.get_product_key(product)
         
         if product_key:
             self.price_history[product_key] = {
                 'name': product['name'],
                 'price': product['price'],
                 'discount': product['discount'],
-                'last_seen': product['timestamp']
+                'last_seen': product['timestamp'],
+                'asin': product.get('asin', '')
             }
     
     def scrape_all_deals(self):
