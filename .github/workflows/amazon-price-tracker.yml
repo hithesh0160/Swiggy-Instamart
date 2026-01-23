@@ -1,0 +1,59 @@
+name: Amazon Price Tracker
+
+on:
+  schedule:
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      search_query:
+        description: 'Search query (optional)'
+        required: false
+        default: ''
+
+jobs:
+  track-prices:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install playwright requests beautifulsoup4 lxml
+          python -m playwright install chromium
+          python -m playwright install-deps
+      
+      - name: Run Amazon Price Tracker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEARCH_QUERY: ${{ github.event.inputs.search_query }}
+        run: |
+          python amazon_price_tracker.py
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: amazon-deals-${{ github.run_number }}
+          path: |
+            amazon_deals.json
+            amazon_deals.csv
+            screenshots/*.png
+          retention-days: 30
+      
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+          git add -A
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update Amazon deals - $(date)" && git push)

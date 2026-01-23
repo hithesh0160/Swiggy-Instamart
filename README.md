@@ -1,187 +1,337 @@
-# Swiggy Instamart Price Tracker 🔥
+# Swiggy Instamart & Amazon Price Tracker 🔥
 
-Track deep discounts on Swiggy Instamart (Bangalore) and get notified when products are priced very low (under ₹50 or >70% discount).
+Track deep discounts on Swiggy Instamart and Amazon.in automatically!
 
-## ✅ Available Solutions
+## 🎯 Available Trackers
 
-### 🤖 Android App Automation (RECOMMENDED)
-- Most reliable and stable
-- No website loading issues
-- Works with your logged-in account
-- Can run 24/7 on a spare phone
-- **Best option for consistent results**
+### 1. 🛒 Amazon.in Tracker (GitHub Actions) ⭐ NEW!
+- **Best for**: Automated cloud tracking
+- **Runs on**: GitHub Actions (free)
+- **Setup**: 5 minutes
+- **Cost**: $0 forever
+- **Frequency**: Every 6 hours (configurable)
 
-### 🌐 Browser Automation
-- Works without Android device
-- Manual control over browsing
-- Good for occasional checks
+### 2. 🤖 Swiggy Android Tracker
+- **Best for**: 24/7 Swiggy monitoring
+- **Runs on**: Android phone/emulator
+- **Setup**: 15 minutes
+- **Cost**: $0 (use spare phone)
 
-## 🚀 Quick Start
-
-### Option 1: Android App (Recommended)
-
-#### Prerequisites
-```bash
-# Install Appium
-npm install -g appium
-appium driver install uiautomator2
-
-# Install Python client
-pip install Appium-Python-Client requests
-```
-
-#### Setup
-1. Connect Android device or start emulator
-2. Enable USB debugging
-3. Install and login to Swiggy app
-4. Set location to Bangalore
-
-#### Run
-```bash
-# Start Appium server (in one terminal)
-appium
-
-# Run tracker (in another terminal)
-python swiggy_android_tracker.py
-```
-
-See **ANDROID_SETUP.md** for detailed instructions.
-
-### Option 2: Browser Automation
-
-```bash
-# Install dependencies
-pip install playwright requests
-python -m playwright install chromium
-
-# Run tracker
-python swiggy_simple_browser.py
-```
-
-Then manually browse to products and press ENTER to scrape.
-
-## 📁 Files
-
-### Android Automation
-- **swiggy_android_tracker.py** - Android app automation ⭐
-- **ANDROID_SETUP.md** - Detailed Android setup guide
-
-### Browser Automation
-- **swiggy_simple_browser.py** - Manual browser tracker
-- **swiggy_manual_tracker.py** - Automated search (has issues)
-
-### Testing
-- **test_with_sample_data.py** - Test with sample data
-
-## ⚙️ Configuration
-
-Edit the tracker file you're using:
-
-```python
-PRICE_THRESHOLD = 50      # Alert for products under this price
-CHECK_INTERVAL = 300      # Check every 5 minutes  
-TEST_MODE = True          # False = enable Telegram alerts
-
-# Android only - categories to search
-SEARCH_QUERIES = [
-    "snacks",
-    "biscuits",
-    "chocolate",
-    "bread",
-    "milk"
-]
-```
-
-## 📱 Telegram Notifications
-
-1. Create bot via @BotFather on Telegram
-2. Get your chat ID from `https://api.telegram.org/bot<TOKEN>/getUpdates`
-3. Update script with your credentials:
-   ```python
-   TELEGRAM_BOT_TOKEN = "your_token"
-   TELEGRAM_CHAT_ID = "your_chat_id"
-   TEST_MODE = False
-   ```
-
-## 📊 Example Output
-
-```
-🔥 PRICE ALERT! 🔥
-
-Product: Chocolate Bar - Clearance
-Current Price: ₹9.0
-Original Price: ₹50.0
-Discount: 82.0%
-```
-
-## 🎯 Features
-
-### Android App Automation
-- ✅ Automatic search across categories
-- ✅ Stable and reliable
-- ✅ No website loading issues
-- ✅ Works with logged-in account
-- ✅ Can run 24/7 on spare phone
-- ✅ Detects products under ₹50
-- ✅ Finds discounts over 70%
-
-### Browser Automation
-- ✅ No Android device needed
-- ✅ Manual control
-- ✅ Works for occasional checks
-
-## 🤖 GitHub Actions (Limitations)
-
-**Note:** GitHub Actions free tier doesn't support Android emulators due to nested virtualization limitations. 
-
-**Alternatives:**
-1. **Run locally** on your computer/spare phone (recommended)
-2. **Use a cloud service** with Android emulator support:
-   - AWS Device Farm
-   - BrowserStack
-   - Sauce Labs
-3. **Self-hosted runner** with Android emulator
-
-See **GITHUB_ACTIONS.md** for cloud deployment options.
-
-## 💡 Recommended Setup
-
-**For 24/7 monitoring:**
-1. Use an old Android phone
-2. Keep it plugged in and connected to WiFi
-3. Run the Android tracker
-4. Enable Telegram notifications
-5. Let it run continuously
-
-**For occasional checks:**
-1. Use browser automation
-2. Manually browse and scrape
-3. Check whenever you want
-
-## 🐛 Troubleshooting
-
-### Android
-- **Can't connect to Appium**: Make sure server is running and device is connected (`adb devices`)
-- **App crashes**: Restart app and Appium server
-- **No products found**: Check if you're logged in and location is set
-
-### Browser
-- **Page alignment issues**: The website has loading problems
-- **Search not working**: Website requires manual interaction
-- **Use manual mode**: Browse yourself, then press ENTER to scrape
-
-## 📝 Notes
-
-- Android automation is more reliable than browser
-- Requires Android device or emulator
-- For personal use only
-- Respect Swiggy's Terms of Service
-- Bangalore location only (configurable)
+### 3. 🌐 Swiggy Browser (Tampermonkey)
+- **Best for**: Casual Swiggy monitoring
+- **Runs on**: Your browser
+- **Setup**: 2 minutes
+- **Cost**: $0
 
 ---
 
-**Ready to start?** 
+## 🚀 Quick Start
 
-For best results: `python swiggy_android_tracker.py` (after Appium setup)
+### Amazon Tracker (Easiest!)
 
-For quick test: `python swiggy_simple_browser.py` (manual browsing)
+1. **Add GitHub Secrets**
+   - Go to Settings → Secrets → Actions
+   - Add `TELEGRAM_BOT_TOKEN`
+   - Add `TELEGRAM_CHAT_ID`
+
+2. **Enable Actions**
+   - Go to Actions tab
+   - Enable workflows
+
+3. **Done!**
+   - Runs automatically every 6 hours
+   - Get Telegram notifications
+   - Download deal reports
+
+See: **[[AMAZON_TRACKER_GUIDE.md]]**
+
+### Swiggy Tampermonkey (Simplest!)
+
+1. **Install Tampermonkey**
+   - Chrome: [Install](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+
+2. **Add Script**
+   - Copy `swiggy-price-monitor.user.js`
+   - Paste in Tampermonkey
+
+3. **Browse Swiggy**
+   - Go to swiggy.com/instamart
+   - Script runs automatically!
+
+See: **[[TAMPERMONKEY_GUIDE.md]]**
+
+### Swiggy Android (Most Reliable!)
+
+1. **Install Appium**
+   ```bash
+   npm install -g appium
+   appium driver install uiautomator2
+   pip install Appium-Python-Client requests
+   ```
+
+2. **Connect Android**
+   ```bash
+   adb devices  # Verify connection
+   ```
+
+3. **Run**
+   ```bash
+   appium  # Terminal 1
+   python swiggy_android_tracker.py  # Terminal 2
+   ```
+
+See: **[[ANDROID_SETUP.md]]**
+
+---
+
+## 📊 Comparison
+
+| Feature | Amazon (Actions) | Swiggy (Tampermonkey) | Swiggy (Android) |
+|---------|------------------|----------------------|------------------|
+| Setup | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
+| Reliability | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| 24/7 Monitoring | ✅ | ❌ | ✅ |
+| Cost | $0 | $0 | $0 |
+| Cloud-based | ✅ | ❌ | Optional |
+| Automatic | ✅ | ✅ | ✅ |
+| Device Needed | ❌ | ❌ | ✅ |
+
+---
+
+## 📁 Repository Structure
+
+```
+├── Amazon Tracker
+│   ├── amazon_price_tracker.py          # Main tracker
+│   ├── .github/workflows/
+│   │   └── amazon-price-tracker.yml     # GitHub Actions workflow
+│   └── AMAZON_TRACKER_GUIDE.md          # Complete guide
+│
+├── Swiggy Trackers
+│   ├── swiggy_android_tracker.py        # Android automation
+│   ├── swiggy-price-monitor.user.js     # Tampermonkey script
+│   ├── swiggy_simple_browser.py         # Manual browser
+│   ├── ANDROID_SETUP.md                 # Android guide
+│   └── TAMPERMONKEY_GUIDE.md            # Tampermonkey guide
+│
+├── Documentation
+│   ├── README.md                        # This file
+│   ├── FREE_CLOUD_OPTIONS.md            # Free hosting
+│   ├── GITHUB_ACTIONS.md                # CI/CD guide
+│   └── wiki/                            # Detailed wiki
+│
+└── Testing
+    └── test_with_sample_data.py         # Test script
+```
+
+---
+
+## ⚙️ Configuration
+
+### Amazon Tracker
+
+Edit `amazon_price_tracker.py`:
+```python
+CONFIG = {
+    'price_threshold': 500,      # Alert under ₹500
+    'discount_threshold': 50,    # Alert >50% off
+    'max_products': 50,
+    'search_queries': [
+        'lightning deals',
+        'deals of the day'
+    ]
+}
+```
+
+### Swiggy Trackers
+
+Edit respective files:
+```python
+PRICE_THRESHOLD = 50      # Alert under ₹50
+CHECK_INTERVAL = 300      # Check every 5 minutes
+TEST_MODE = True          # False for Telegram
+```
+
+---
+
+## 📱 Telegram Setup
+
+### Create Bot
+1. Open Telegram → @BotFather
+2. Send `/newbot`
+3. Save bot token
+
+### Get Chat ID
+1. Start chat with bot
+2. Visit: `https://api.telegram.org/bot<TOKEN>/getUpdates`
+3. Find `chat_id`
+
+### Configure
+```python
+TELEGRAM_BOT_TOKEN = "your_token"
+TELEGRAM_CHAT_ID = "your_chat_id"
+TEST_MODE = False
+```
+
+---
+
+## 🎯 Features
+
+### Amazon Tracker
+- ✅ Runs on GitHub Actions (free)
+- ✅ Scrapes Today's Deals
+- ✅ Tracks Lightning Deals
+- ✅ Custom search queries
+- ✅ Telegram notifications
+- ✅ CSV/JSON exports
+- ✅ Screenshots
+- ✅ Price history
+
+### Swiggy Trackers
+- ✅ Multiple automation methods
+- ✅ Android app automation
+- ✅ Browser-based (Tampermonkey)
+- ✅ Detects pricing errors
+- ✅ Tracks products under ₹50
+- ✅ Finds >70% discounts
+- ✅ Telegram alerts
+
+---
+
+## 📊 Example Outputs
+
+### Amazon Alert
+```
+🛒 Amazon Deals Update
+
+📊 Summary:
+• Total Deals: 45
+• Cheap Deals (≤₹500): 12
+• High Discount (≥50%): 8
+
+🔥 Top 5 Deals:
+1. Wireless Mouse - ₹299 (70% off)
+2. USB Cable - ₹199 (65% off)
+...
+```
+
+### Swiggy Alert
+```
+🔥 PRICE ALERT!
+
+Product: Chocolate Bar
+Current Price: ₹9
+Original Price: ₹50
+Discount: 82%
+```
+
+---
+
+## 🆓 Free Hosting Options
+
+### GitHub Actions (Amazon)
+- **Cost**: $0
+- **Runs**: 2,000 min/month free
+- **Best for**: Amazon tracking
+
+### Oracle Cloud (Swiggy Android)
+- **Cost**: $0 forever
+- **Resources**: 4 ARM VMs, 24GB RAM
+- **Best for**: 24/7 Swiggy tracking
+
+### Spare Phone (Swiggy Android)
+- **Cost**: $0
+- **Setup**: Easiest
+- **Best for**: Dedicated monitoring
+
+See: **[[FREE_CLOUD_OPTIONS.md]]**
+
+---
+
+## 🐛 Troubleshooting
+
+### Amazon Tracker
+- **No deals found**: Check screenshots in artifacts
+- **Workflow fails**: View logs in Actions tab
+- **Telegram not working**: Verify secrets
+
+### Swiggy Trackers
+- **Android not connecting**: Run `adb devices`
+- **Tampermonkey not running**: Check if enabled
+- **No products found**: Check location setting
+
+See: **[[FAQ]]** in wiki
+
+---
+
+## 📚 Documentation
+
+### Guides
+- **[[AMAZON_TRACKER_GUIDE.md]]** - Amazon setup
+- **[[ANDROID_SETUP.md]]** - Android automation
+- **[[TAMPERMONKEY_GUIDE.md]]** - Browser tracking
+- **[[FREE_CLOUD_OPTIONS.md]]** - Free hosting
+
+### Wiki
+- **[[Home]]** - Wiki home
+- **[[Quick Start Guide]]** - Get started
+- **[[FAQ]]** - Common questions
+- **[[Troubleshooting]]** - Fix issues
+
+---
+
+## 💡 Use Cases
+
+### Daily Deal Hunter
+- Run Amazon tracker 4x daily
+- Get morning/evening deals
+- Never miss lightning deals
+
+### Grocery Saver
+- Use Swiggy Tampermonkey
+- Browse while shopping
+- Catch pricing errors
+
+### 24/7 Monitor
+- Setup Swiggy on spare phone
+- Run Amazon on GitHub Actions
+- Get all deals automatically
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome!
+
+1. Fork repository
+2. Create feature branch
+3. Make changes
+4. Submit pull request
+
+**Ideas:**
+- More platforms (Flipkart, Myntra)
+- Better deal detection
+- Price history graphs
+- Email notifications
+
+---
+
+## 📝 License
+
+For personal use only. Respect platform Terms of Service.
+
+---
+
+## 🔗 Links
+
+- **Repository**: https://github.com/hithesh0160/Swiggy-Instamart
+- **Issues**: https://github.com/hithesh0160/Swiggy-Instamart/issues
+- **Wiki**: https://github.com/hithesh0160/Swiggy-Instamart/wiki
+
+---
+
+**Ready to start?**
+
+- **Amazon**: Enable GitHub Actions
+- **Swiggy (Easy)**: Install Tampermonkey script
+- **Swiggy (24/7)**: Setup Android automation
