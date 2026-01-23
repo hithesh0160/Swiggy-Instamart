@@ -36,7 +36,22 @@ CONFIG = {
         'lightning deals',
         'deals of the day',
         'today deals'
-    ]
+    ],
+    'electronics_queries': [
+        'tv deals',
+        'laptop deals',
+        'smartphone deals',
+        'computer accessories',
+        'gadgets deals',
+        'electronics sale'
+    ],
+    'electronics_config': {
+        'min_discount': 20,  # Start with 20% discount
+        'max_discount': 60,  # Try up to 60%
+        'discount_step': 10,  # Reduce by 10% each time
+        'min_products': 5,   # Need at least 5 products
+        'max_price': 50000   # Electronics can be expensive
+    }
 }
 
 class AmazonPriceTracker:
@@ -307,6 +322,10 @@ class AmazonPriceTracker:
                     self.deals.extend(products)
                     time.sleep(2)  # Rate limiting
                 
+                # Electronics with adaptive discount
+                electronics_products = self.scrape_electronics_adaptive(page)
+                self.deals.extend(electronics_products)
+                
             finally:
                 browser.close()
         
@@ -322,6 +341,74 @@ class AmazonPriceTracker:
         self.deals = unique_deals
         print(f"\n✓ Total unique deals found: {len(self.deals)}")
     
+    def scrape_electronics_adaptive(self, page):
+        """Scrape electronics with adaptive discount threshold"""
+        print("\n" + "="*60)
+        print("ELECTRONICS SECTION - ADAPTIVE DISCOUNT")
+        print("="*60)
+        
+        all_electronics = []
+        e_config = CONFIG['electronics_config']
+        
+        # Scrape all electronics queries first
+        for query in CONFIG['electronics_queries']:
+            url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
+            products = self.scrape_deals_page(page, url, f'electronics_{query.replace(" ", "_")}')
+            all_electronics.extend(products)
+            time.sleep(2)
+        
+        if not all_electronics:
+            print("✗ No electronics products found")
+            return []
+        
+        print(f"✓ Found {len(all_electronics)} total electronics products")
+        
+        # Try different discount thresholds
+        current_discount = e_config['max_discount']
+        min_discount = e_config['min_discount']
+        step = e_config['discount_step']
+        min_products = e_config['min_products']
+        
+        filtered_products = []
+        
+        while current_discount >= min_discount:
+            # Filter by current discount threshold
+            filtered = [
+                p for p in all_electronics 
+                if p['discount'] >= current_discount and p['price'] <= e_config['max_price']
+            ]
+            
+            # Remove duplicates
+            seen = set()
+            unique_filtered = []
+            for p in filtered:
+                key = f"{p['name']}_{p['price']}"
+                if key not in seen:
+                    seen[key] = True
+                    unique_filtered.append(p)
+            
+            print(f"  Trying {current_discount}% discount: {len(unique_filtered)} products")
+            
+            if len(unique_filtered) >= min_products:
+                filtered_products = unique_filtered
+                print(f"✓ Found {len(filtered_products)} electronics with ≥{current_discount}% discount")
+                break
+            
+            # Lower threshold and try again
+            current_discount -= step
+        
+        if not filtered_products and all_electronics:
+            # If still no products, take top discounted ones
+            sorted_electronics = sorted(all_electronics, key=lambda x: x['discount'], reverse=True)
+            filtered_products = sorted_electronics[:min_products]
+            print(f"✓ Taking top {len(filtered_products)} electronics by discount")
+        
+        # Mark as electronics category
+        for product in filtered_products:
+            product['category'] = 'electronics_featured'
+        
+        return filtered_products
+    
     def analyze_deals(self):
         """Analyze and categorize deals"""
         if not self.deals:
@@ -331,6 +418,14 @@ class AmazonPriceTracker:
         print("\n" + "="*60)
         print("DEAL ANALYSIS")
         print("="*60)
+        
+        # Separate electronics
+        electronics_deals = [d for d in self.deals if d.get('category') == 'electronics_featured']
+        other_deals = [d for d in self.deals if d.get('category') != 'electronics_featured']
+        
+        print(f"Total Deals Scraped: {len(self.deals)}")
+        print(f"  - Electronics: {len(electronics_deals)}")
+        print(f"  - Other Deals: {len(other_deals)}")
         
         # Check each deal for price changes
         for deal in self.deals:
@@ -359,29 +454,42 @@ class AmazonPriceTracker:
         cheap_deals = [d for d in alert_worthy if d['price'] <= CONFIG['price_threshold']]
         high_discount = [d for d in alert_worthy if d['discount'] >= CONFIG['discount_threshold']]
         
-        print(f"Total Deals Scraped: {len(self.deals)}")
+        # Electronics from alert-worthy deals
+        electronics_alerts = [d for d in alert_worthy if d.get('category') == 'electronics_featured']
+        
         print(f"New Deals: {len(self.new_deals)}")
         print(f"Price Drops: {len(self.price_drops)}")
         print(f"Cheap Deals (≤₹{CONFIG['price_threshold']}): {len(cheap_deals)}")
         print(f"High Discount (≥{CONFIG['discount_threshold']}%): {len(high_discount)}")
+        print(f"Electronics Alerts: {len(electronics_alerts)}")
         
         # Combine and deduplicate alert-worthy deals
         alert_deals = list({d['name']: d for d in (cheap_deals + high_discount)}.values())
         
         # Sort by discount
         alert_deals.sort(key=lambda x: x['discount'], reverse=True)
+        electronics_alerts.sort(key=lambda x: x['discount'], reverse=True)
         
-        if alert_deals:
-            print("\n🔥 ALERT-WORTHY DEALS:")
-            for i, deal in enumerate(alert_deals[:10], 1):
-                change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
-                print(f"{change_marker} {i}. {deal['name'][:60]}")
-                print(f"   ₹{deal['price']} ({deal['discount']}% off)")
-                if deal['change_type'] == 'price_drop':
-                    print(f"   Price dropped from ₹{deal['old_price']} ({deal['price_drop_pct']}% drop)")
-                if deal['link']:
-                    print(f"   {deal['link']}")
-                print()
+        if alert_deals or electronics_alerts:
+            if alert_deals:
+                print("\n🔥 GENERAL DEALS:")
+                for i, deal in enumerate(alert_deals[:10], 1):
+                    change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
+                    print(f"{change_marker} {i}. {deal['name'][:60]}")
+                    print(f"   ₹{deal['price']} ({deal['discount']}% off)")
+                    if deal['change_type'] == 'price_drop':
+                        print(f"   Price dropped from ₹{deal['old_price']} ({deal['price_drop_pct']}% drop)")
+                    print()
+            
+            if electronics_alerts:
+                print("\n💻 ELECTRONICS DEALS:")
+                for i, deal in enumerate(electronics_alerts[:10], 1):
+                    change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
+                    print(f"{change_marker} {i}. {deal['name'][:60]}")
+                    print(f"   ₹{deal['price']} ({deal['discount']}% off)")
+                    if deal['change_type'] == 'price_drop':
+                        print(f"   Price dropped from ₹{deal['old_price']} ({deal['price_drop_pct']}% drop)")
+                    print()
         else:
             print("\n✗ No new deals or price drops found")
         
@@ -391,16 +499,18 @@ class AmazonPriceTracker:
             'price_drops': len(self.price_drops),
             'cheap': len(cheap_deals),
             'high_discount': len(high_discount),
-            'alert_deals': alert_deals[:10]
+            'alert_deals': alert_deals[:10],
+            'electronics_alerts': electronics_alerts[:10]
         }
     
     def send_summary_alert(self, analysis):
         """Send summary via Telegram"""
-        if not analysis or not analysis.get('alert_deals'):
+        if not analysis or (not analysis.get('alert_deals') and not analysis.get('electronics_alerts')):
             print("No alert-worthy deals to send")
             return
         
-        alert_deals = analysis['alert_deals']
+        alert_deals = analysis.get('alert_deals', [])
+        electronics_alerts = analysis.get('electronics_alerts', [])
         
         message = f"""🛒 <b>Amazon Deals Alert</b>
 
@@ -409,21 +519,35 @@ class AmazonPriceTracker:
 • Price Drops: {analysis['price_drops']}
 • Cheap Deals (≤₹{CONFIG['price_threshold']}): {analysis['cheap']}
 • High Discount (≥{CONFIG['discount_threshold']}%): {analysis['high_discount']}
-
-🔥 <b>Top Deals:</b>
 """
         
-        for i, deal in enumerate(alert_deals[:5], 1):
-            change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
-            message += f"\n{change_marker}\n"
-            message += f"{i}. {deal['name'][:80]}\n"
-            message += f"   ₹{deal['price']} ({deal['discount']}% off)\n"
-            
-            if deal['change_type'] == 'price_drop':
-                message += f"   Was: ₹{deal['old_price']} (dropped {deal['price_drop_pct']}%)\n"
-            
-            if deal['link']:
-                message += f"   <a href='{deal['link']}'>View Deal</a>\n"
+        if electronics_alerts:
+            message += f"\n💻 <b>Electronics Deals ({len(electronics_alerts)}):</b>\n"
+            for i, deal in enumerate(electronics_alerts[:5], 1):
+                change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                message += f"\n{change_marker}\n"
+                message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   ₹{deal['price']} ({deal['discount']}% off)\n"
+                
+                if deal['change_type'] == 'price_drop':
+                    message += f"   Was: ₹{deal['old_price']} (dropped {deal['price_drop_pct']}%)\n"
+                
+                if deal['link']:
+                    message += f"   <a href='{deal['link']}'>View Deal</a>\n"
+        
+        if alert_deals:
+            message += f"\n🔥 <b>Other Top Deals ({len(alert_deals)}):</b>\n"
+            for i, deal in enumerate(alert_deals[:5], 1):
+                change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                message += f"\n{change_marker}\n"
+                message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   ₹{deal['price']} ({deal['discount']}% off)\n"
+                
+                if deal['change_type'] == 'price_drop':
+                    message += f"   Was: ₹{deal['old_price']} (dropped {deal['price_drop_pct']}%)\n"
+                
+                if deal['link']:
+                    message += f"   <a href='{deal['link']}'>View Deal</a>\n"
         
         message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
@@ -471,7 +595,7 @@ class AmazonPriceTracker:
             self.save_results()
             
             # Send alerts
-            if analysis and (analysis['new'] > 0 or analysis['price_drops'] > 0):
+            if analysis and (analysis['new'] > 0 or analysis['price_drops'] > 0 or analysis.get('electronics_alerts')):
                 self.send_summary_alert(analysis)
             else:
                 print("\n✓ No new deals or price drops - No alert sent")
