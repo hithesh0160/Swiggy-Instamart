@@ -22,7 +22,9 @@ SEARCH_QUERY = os.getenv('SEARCH_QUERY', '')
 CONFIG = {
     'price_threshold': 500,  # Alert for products under ₹500
     'discount_threshold': 50,  # Alert for >50% discount
-    'max_products': 50,  # Max products to track per run
+    'price_drop_threshold': 20,  # Alert if price drops by >20%
+    'max_products': 30,  # Reduced from 50 to save time
+    'only_new_deals': True,  # Only alert on NEW deals or price drops
     'categories': [
         'electronics',
         'books',
@@ -33,16 +35,37 @@ CONFIG = {
     'search_queries': [
         'lightning deals',
         'deals of the day',
-        'today deals',
-        'clearance sale'
+        'today deals'
     ]
 }
 
 class AmazonPriceTracker:
     def __init__(self):
         self.deals = []
+        self.price_history = self.load_price_history()
+        self.new_deals = []
+        self.price_drops = []
         self.screenshots_dir = Path('screenshots')
         self.screenshots_dir.mkdir(exist_ok=True)
+    
+    def load_price_history(self):
+        """Load previous price history"""
+        try:
+            if Path('price_history.json').exists():
+                with open('price_history.json', 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Could not load price history: {e}")
+        return {}
+    
+    def save_price_history(self):
+        """Save price history"""
+        try:
+            with open('price_history.json', 'w', encoding='utf-8') as f:
+                json.dump(self.price_history, f, indent=2, ensure_ascii=False)
+            print("✓ Price history saved")
+        except Exception as e:
+            print(f"Error saving price history: {e}")
         
     def send_telegram_alert(self, message):
         """Send alert via Telegram"""
@@ -202,6 +225,50 @@ class AmazonPriceTracker:
             return True
         return False
     
+    def check_price_change(self, product):
+        """Check if this is a new deal or price drop"""
+        product_key = product['asin'] if product['asin'] else product['name']
+        
+        if not product_key:
+            return 'new'  # No way to track, treat as new
+        
+        # Check if we've seen this product before
+        if product_key not in self.price_history:
+            return 'new'  # New product
+        
+        old_data = self.price_history[product_key]
+        old_price = old_data.get('price', 0)
+        
+        if old_price == 0:
+            return 'new'
+        
+        # Check if price dropped significantly
+        price_drop_pct = ((old_price - product['price']) / old_price) * 100
+        
+        if price_drop_pct >= CONFIG['price_drop_threshold']:
+            product['old_price'] = old_price
+            product['price_drop_pct'] = round(price_drop_pct, 1)
+            return 'price_drop'
+        
+        # Same or higher price
+        if product['price'] >= old_price:
+            return 'same'
+        
+        # Small price drop (less than threshold)
+        return 'minor_drop'
+    
+    def update_price_history(self, product):
+        """Update price history for a product"""
+        product_key = product['asin'] if product['asin'] else product['name']
+        
+        if product_key:
+            self.price_history[product_key] = {
+                'name': product['name'],
+                'price': product['price'],
+                'discount': product['discount'],
+                'last_seen': product['timestamp']
+            }
+    
     def scrape_all_deals(self):
         """Scrape deals from multiple sources"""
         print("\n" + "="*60)
@@ -265,50 +332,96 @@ class AmazonPriceTracker:
         print("DEAL ANALYSIS")
         print("="*60)
         
-        # Filter deals
-        cheap_deals = [d for d in self.deals if d['price'] <= CONFIG['price_threshold']]
-        high_discount = [d for d in self.deals if d['discount'] >= CONFIG['discount_threshold']]
+        # Check each deal for price changes
+        for deal in self.deals:
+            change_type = self.check_price_change(deal)
+            deal['change_type'] = change_type
+            
+            # Update price history
+            self.update_price_history(deal)
+            
+            # Categorize
+            if change_type == 'new':
+                self.new_deals.append(deal)
+            elif change_type == 'price_drop':
+                self.price_drops.append(deal)
         
-        print(f"Total Deals: {len(self.deals)}")
+        # Save updated price history
+        self.save_price_history()
+        
+        # Filter deals based on config
+        if CONFIG['only_new_deals']:
+            alert_worthy = self.new_deals + self.price_drops
+        else:
+            alert_worthy = self.deals
+        
+        # Further filter by thresholds
+        cheap_deals = [d for d in alert_worthy if d['price'] <= CONFIG['price_threshold']]
+        high_discount = [d for d in alert_worthy if d['discount'] >= CONFIG['discount_threshold']]
+        
+        print(f"Total Deals Scraped: {len(self.deals)}")
+        print(f"New Deals: {len(self.new_deals)}")
+        print(f"Price Drops: {len(self.price_drops)}")
         print(f"Cheap Deals (≤₹{CONFIG['price_threshold']}): {len(cheap_deals)}")
         print(f"High Discount (≥{CONFIG['discount_threshold']}%): {len(high_discount)}")
         
-        # Top deals
-        top_deals = sorted(self.deals, key=lambda x: x['discount'], reverse=True)[:10]
+        # Combine and deduplicate alert-worthy deals
+        alert_deals = list({d['name']: d for d in (cheap_deals + high_discount)}.values())
         
-        print("\n🔥 TOP 10 DEALS:")
-        for i, deal in enumerate(top_deals, 1):
-            print(f"{i}. {deal['name'][:60]}")
-            print(f"   ₹{deal['price']} ({deal['discount']}% off)")
-            if deal['link']:
-                print(f"   {deal['link']}")
-            print()
+        # Sort by discount
+        alert_deals.sort(key=lambda x: x['discount'], reverse=True)
+        
+        if alert_deals:
+            print("\n🔥 ALERT-WORTHY DEALS:")
+            for i, deal in enumerate(alert_deals[:10], 1):
+                change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
+                print(f"{change_marker} {i}. {deal['name'][:60]}")
+                print(f"   ₹{deal['price']} ({deal['discount']}% off)")
+                if deal['change_type'] == 'price_drop':
+                    print(f"   Price dropped from ₹{deal['old_price']} ({deal['price_drop_pct']}% drop)")
+                if deal['link']:
+                    print(f"   {deal['link']}")
+                print()
+        else:
+            print("\n✗ No new deals or price drops found")
         
         return {
             'total': len(self.deals),
+            'new': len(self.new_deals),
+            'price_drops': len(self.price_drops),
             'cheap': len(cheap_deals),
             'high_discount': len(high_discount),
-            'top_deals': top_deals
+            'alert_deals': alert_deals[:10]
         }
     
     def send_summary_alert(self, analysis):
         """Send summary via Telegram"""
-        if not analysis:
+        if not analysis or not analysis.get('alert_deals'):
+            print("No alert-worthy deals to send")
             return
         
-        message = f"""🛒 <b>Amazon Deals Update</b>
+        alert_deals = analysis['alert_deals']
+        
+        message = f"""🛒 <b>Amazon Deals Alert</b>
 
 📊 <b>Summary:</b>
-• Total Deals: {analysis['total']}
+• New Deals: {analysis['new']}
+• Price Drops: {analysis['price_drops']}
 • Cheap Deals (≤₹{CONFIG['price_threshold']}): {analysis['cheap']}
 • High Discount (≥{CONFIG['discount_threshold']}%): {analysis['high_discount']}
 
-🔥 <b>Top 5 Deals:</b>
+🔥 <b>Top Deals:</b>
 """
         
-        for i, deal in enumerate(analysis['top_deals'][:5], 1):
-            message += f"\n{i}. {deal['name'][:80]}\n"
+        for i, deal in enumerate(alert_deals[:5], 1):
+            change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+            message += f"\n{change_marker}\n"
+            message += f"{i}. {deal['name'][:80]}\n"
             message += f"   ₹{deal['price']} ({deal['discount']}% off)\n"
+            
+            if deal['change_type'] == 'price_drop':
+                message += f"   Was: ₹{deal['old_price']} (dropped {deal['price_drop_pct']}%)\n"
+            
             if deal['link']:
                 message += f"   <a href='{deal['link']}'>View Deal</a>\n"
         
@@ -322,21 +435,28 @@ class AmazonPriceTracker:
             print("No deals to save")
             return
         
-        # Save JSON
+        # Save all deals
         with open('amazon_deals.json', 'w', encoding='utf-8') as f:
             json.dump(self.deals, f, indent=2, ensure_ascii=False)
-        print("✓ Saved to amazon_deals.json")
+        print("✓ Saved all deals to amazon_deals.json")
         
-        # Save CSV
-        if self.deals:
-            keys = ['name', 'price', 'discount', 'category', 'link', 'rating', 'timestamp']
-            with open('amazon_deals.csv', 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=keys)
-                writer.writeheader()
-                for deal in self.deals:
-                    row = {k: deal.get(k, '') for k in keys}
-                    writer.writerow(row)
-            print("✓ Saved to amazon_deals.csv")
+        # Save only new deals and price drops
+        new_and_drops = self.new_deals + self.price_drops
+        if new_and_drops:
+            with open('amazon_deals_new.json', 'w', encoding='utf-8') as f:
+                json.dump(new_and_drops, f, indent=2, ensure_ascii=False)
+            print(f"✓ Saved {len(new_and_drops)} new deals to amazon_deals_new.json")
+        
+        # Save price changes summary
+        price_changes = {
+            'timestamp': datetime.now().isoformat(),
+            'new_deals': len(self.new_deals),
+            'price_drops': len(self.price_drops),
+            'deals': new_and_drops
+        }
+        with open('price_changes.json', 'w', encoding='utf-8') as f:
+            json.dump(price_changes, f, indent=2, ensure_ascii=False)
+        print("✓ Saved price changes to price_changes.json")
     
     def run(self):
         """Main execution"""
@@ -351,8 +471,10 @@ class AmazonPriceTracker:
             self.save_results()
             
             # Send alerts
-            if analysis and (analysis['cheap'] > 0 or analysis['high_discount'] > 0):
+            if analysis and (analysis['new'] > 0 or analysis['price_drops'] > 0):
                 self.send_summary_alert(analysis)
+            else:
+                print("\n✓ No new deals or price drops - No alert sent")
             
             print("\n" + "="*60)
             print("TRACKING COMPLETE")
