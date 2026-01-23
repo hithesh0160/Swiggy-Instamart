@@ -34,16 +34,12 @@ CONFIG = {
     ],
     'search_queries': [
         'lightning deals',
-        'deals of the day',
-        'today deals'
+        'deals of the day'
     ],
     'electronics_queries': [
         'tv deals',
         'laptop deals',
-        'smartphone deals',
-        'computer accessories',
-        'gadgets deals',
-        'electronics sale'
+        'smartphone deals'
     ],
     'electronics_config': {
         'min_discount': 20,  # Start with 20% discount
@@ -134,12 +130,12 @@ class AmazonPriceTracker:
         
         try:
             page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            time.sleep(3)
+            time.sleep(2)
             
             # Scroll to load more products
-            for i in range(3):
+            for i in range(2):
                 page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                time.sleep(1)
+                time.sleep(0.5)
             
             # Take screenshot
             screenshot_path = self.screenshots_dir / f'{category}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
@@ -320,7 +316,7 @@ class AmazonPriceTracker:
                     url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
                     products = self.scrape_deals_page(page, url, query.replace(' ', '_'))
                     self.deals.extend(products)
-                    time.sleep(2)  # Rate limiting
+                    time.sleep(1)  # Rate limiting
                 
                 # Electronics with adaptive discount
                 electronics_products = self.scrape_electronics_adaptive(page)
@@ -355,7 +351,7 @@ class AmazonPriceTracker:
             url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
             products = self.scrape_deals_page(page, url, f'electronics_{query.replace(" ", "_")}')
             all_electronics.extend(products)
-            time.sleep(2)
+            time.sleep(1)
         
         if not all_electronics:
             print("✗ No electronics products found")
@@ -384,7 +380,7 @@ class AmazonPriceTracker:
             for p in filtered:
                 key = f"{p['name']}_{p['price']}"
                 if key not in seen:
-                    seen[key] = True
+                    seen.add(key)
                     unique_filtered.append(p)
             
             print(f"  Trying {current_discount}% discount: {len(unique_filtered)} products")

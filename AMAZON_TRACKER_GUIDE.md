@@ -7,18 +7,20 @@ Automatically track Amazon deals using GitHub Actions - runs completely free in 
 ### Advantages
 - ✅ **Works on GitHub Actions** - No Android emulator needed
 - ✅ **Completely free** - GitHub Actions free tier
-- ✅ **Automated** - Runs every 6 hours automatically
+- ✅ **Automated** - Runs twice daily (9 AM & 9 PM IST)
 - ✅ **No server needed** - Runs in the cloud
 - ✅ **Better API** - Amazon has more stable structure
 - ✅ **Manual trigger** - Run anytime with one click
+- ✅ **Smart alerts** - Only notifies on NEW deals or price drops
 
 ### How It Works
-1. GitHub Actions runs every 6 hours (configurable)
-2. Scrapes Amazon deals pages
+1. GitHub Actions runs twice daily (9 AM & 9 PM IST)
+2. Scrapes Amazon deals pages + electronics section
 3. Finds products under ₹500 or >50% discount
-4. Sends Telegram summary
-5. Saves results as artifacts
-6. Commits data to repository
+4. Tracks price history - only alerts on NEW deals or >20% price drops
+5. Sends Telegram summary with separate sections for electronics
+6. Saves results as artifacts
+7. Commits price history to repository
 
 ---
 
@@ -67,22 +69,27 @@ Edit `amazon_price_tracker.py`:
 
 ```python
 CONFIG = {
-    'price_threshold': 500,      # Alert for products under ₹500
-    'discount_threshold': 50,    # Alert for >50% discount
-    'max_products': 50,          # Max products per run
-    'categories': [
-        'electronics',
-        'books',
-        'home',
-        'fashion',
-        'grocery'
-    ],
+    'price_threshold': 500,         # Alert for products under ₹500
+    'discount_threshold': 50,       # Alert for >50% discount
+    'price_drop_threshold': 20,     # Alert if price drops by >20%
+    'max_products': 30,             # Max products per search
+    'only_new_deals': True,         # Only alert on NEW deals or price drops
     'search_queries': [
         'lightning deals',
-        'deals of the day',
-        'today deals',
-        'clearance sale'
-    ]
+        'deals of the day'
+    ],
+    'electronics_queries': [
+        'tv deals',
+        'laptop deals',
+        'smartphone deals'
+    ],
+    'electronics_config': {
+        'min_discount': 20,         # Start with 20% discount
+        'max_discount': 60,         # Try up to 60%
+        'discount_step': 10,        # Reduce by 10% each time
+        'min_products': 5,          # Need at least 5 products
+        'max_price': 50000          # Electronics can be expensive
+    }
 }
 ```
 
@@ -93,24 +100,23 @@ Edit `.github/workflows/amazon-price-tracker.yml`:
 ```yaml
 on:
   schedule:
+    # Twice daily: 9 AM and 9 PM IST (3:30 AM and 3:30 PM UTC)
+    - cron: '30 3,15 * * *'
+    
     # Every 6 hours
-    - cron: '0 */6 * * *'
+    # - cron: '0 */6 * * *'
     
     # Every 3 hours
     # - cron: '0 */3 * * *'
     
-    # Every day at 9 AM
-    # - cron: '0 9 * * *'
-    
-    # Twice daily (9 AM and 9 PM)
-    # - cron: '0 9,21 * * *'
+    # Every day at 9 AM IST
+    # - cron: '30 3 * * *'
 ```
 
-**Cron syntax:**
-- `0 */6 * * *` - Every 6 hours
-- `0 9 * * *` - Daily at 9 AM
-- `0 9,21 * * *` - 9 AM and 9 PM
-- `*/30 * * * *` - Every 30 minutes
+**Current schedule:** Twice daily (9 AM & 9 PM IST)
+- Uses ~20 minutes/day
+- ~600 minutes/month
+- Only 30% of free tier (2,000 min/month)
 
 ---
 
@@ -127,8 +133,13 @@ on:
 3. **Search Queries**
    - "lightning deals"
    - "deals of the day"
-   - "today deals"
-   - "clearance sale"
+
+4. **Electronics Section (Adaptive)**
+   - TV deals
+   - Laptop deals
+   - Smartphone deals
+   - Adaptive discount: 60% → 50% → 40% → 30% → 20%
+   - Finds at least 5 products or takes top discounted ones
 
 ### Custom Search
 
@@ -144,34 +155,50 @@ Trigger manually with custom query:
 ### Message Format
 
 ```
-🛒 Amazon Deals Update
+🛒 Amazon Deals Alert
 
 📊 Summary:
-• Total Deals: 45
-• Cheap Deals (≤₹500): 12
-• High Discount (≥50%): 8
+• New Deals: 12
+• Price Drops: 3
+• Cheap Deals (≤₹500): 8
+• High Discount (≥50%): 7
 
-🔥 Top 5 Deals:
+💻 Electronics Deals (5):
 
+🆕 NEW
+1. Samsung 32" Smart TV
+   ₹15,999 (60% off)
+   View Deal
+
+📉 PRICE DROP
+2. Dell Laptop i5 8GB
+   ₹35,999 (45% off)
+   Was: ₹42,000 (dropped 14.3%)
+   View Deal
+
+🔥 Other Top Deals (5):
+
+🆕 NEW
 1. Wireless Mouse
    ₹299 (70% off)
    View Deal
 
-2. USB Cable 3-Pack
-   ₹199 (65% off)
-   View Deal
-
 ...
 
-⏰ 2026-01-19 12:00:00
+⏰ 2026-01-23 09:00:00
 ```
 
 ### Notification Triggers
 
-Alerts sent when:
-- Products found under ₹500
-- Discounts over 50%
-- New deals detected
+Alerts sent ONLY when:
+- NEW deals found (not seen before)
+- Price drops by >20%
+- Products under ₹500 OR >50% discount
+
+**No alerts for:**
+- Same price as before
+- Minor price changes (<20%)
+- Already notified products
 
 ---
 
@@ -186,12 +213,22 @@ After each run, download:
    - JSON format
    - All fields included
 
-2. **amazon_deals.csv**
-   - Spreadsheet format
-   - Easy to analyze
-   - Import to Excel
+2. **amazon_deals_new.json**
+   - Only NEW deals and price drops
+   - What triggered alerts
+   - Filtered data
 
-3. **screenshots/**
+3. **price_history.json**
+   - Historical price tracking
+   - Committed to repo
+   - Used for price drop detection
+
+4. **price_changes.json**
+   - Summary of changes
+   - New deals count
+   - Price drops count
+
+5. **screenshots/**
    - Page screenshots
    - Visual verification
    - Debugging
@@ -207,7 +244,8 @@ After each run, download:
 
 Results also committed to repo:
 - `amazon_deals.json` - Latest deals
-- `amazon_deals.csv` - Latest deals CSV
+- `price_history.json` - Price tracking database
+- `price_changes.json` - Latest changes summary
 - Track history with git
 
 ---
@@ -260,10 +298,18 @@ Every page scraped is screenshot:
 - Unlimited for public repos
 
 **Usage per run:**
-- ~5 minutes per run
-- 4 runs/day = 20 min/day
-- 600 min/month
-- **Well within free tier!**
+- ~10 minutes per run
+- 2 runs/day = 20 min/day
+- ~600 min/month
+- **Only 30% of free tier!**
+
+### Optimized for Free Tier
+
+- Reduced search queries
+- Faster page loads
+- Shorter wait times
+- Efficient scraping
+- Stays well within limits
 
 ### Comparison
 

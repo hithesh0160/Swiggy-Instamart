@@ -64,11 +64,11 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions Bot'
           git config --global user.email 'actions@github.com'
-          git pull origin main
-          git add amazon_deals.json price_history.json 2>/dev/null || true
-          if ! git diff --quiet HEAD -- amazon_deals.json price_history.json 2>/dev/null; then
-            git commit -m "Update Amazon price history - $(date +'%Y-%m-%d %H:%M')"
-            git push
-          else
+          git pull origin main || echo "Pull failed, continuing..."
+          git add amazon_deals.json price_history.json price_changes.json amazon_deals_new.json 2>/dev/null || true
+          if git diff --cached --quiet; then
             echo "No changes to commit"
+          else
+            git commit -m "Update Amazon price history - $(date +'%Y-%m-%d %H:%M')"
+            git push || echo "Push failed - this is expected if no changes"
           fi
