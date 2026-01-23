@@ -5,6 +5,14 @@ on:
     # Run twice daily: 9 AM and 9 PM IST (3:30 AM and 3:30 PM UTC)
     - cron: '30 3,15 * * *'
   
+  # Trigger on push to main branch
+  push:
+    branches:
+      - main
+    paths:
+      - 'amazon_price_tracker.py'
+      - '.github/workflows/amazon-price-tracker.yml'
+  
   # Allow manual trigger
   workflow_dispatch:
     inputs:
