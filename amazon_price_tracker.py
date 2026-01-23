@@ -440,36 +440,51 @@ class AmazonPriceTracker:
         # Save updated price history
         self.save_price_history()
         
-        # Filter deals based on config
-        if CONFIG['only_new_deals']:
-            alert_worthy = self.new_deals + self.price_drops
-        else:
-            alert_worthy = self.deals
+        # Filter deals based on config - ONLY new deals and price drops
+        alert_worthy = self.new_deals + self.price_drops
+        
+        if not alert_worthy:
+            print("\n✗ No new deals or price drops to alert")
+            return {
+                'total': len(self.deals),
+                'new': 0,
+                'price_drops': 0,
+                'cheap': 0,
+                'high_discount': 0,
+                'alert_deals': [],
+                'electronics_alerts': []
+            }
         
         # Further filter by thresholds
         cheap_deals = [d for d in alert_worthy if d['price'] <= CONFIG['price_threshold']]
         high_discount = [d for d in alert_worthy if d['discount'] >= CONFIG['discount_threshold']]
         
-        # Electronics from alert-worthy deals
+        # Electronics from alert-worthy deals (only new or price drops)
         electronics_alerts = [d for d in alert_worthy if d.get('category') == 'electronics_featured']
+        
+        # Other deals (not electronics)
+        other_alerts = [d for d in alert_worthy if d.get('category') != 'electronics_featured']
         
         print(f"New Deals: {len(self.new_deals)}")
         print(f"Price Drops: {len(self.price_drops)}")
-        print(f"Cheap Deals (≤₹{CONFIG['price_threshold']}): {len(cheap_deals)}")
-        print(f"High Discount (≥{CONFIG['discount_threshold']}%): {len(high_discount)}")
-        print(f"Electronics Alerts: {len(electronics_alerts)}")
+        print(f"Alert-Worthy Deals: {len(alert_worthy)}")
+        print(f"  - Cheap Deals (≤₹{CONFIG['price_threshold']}): {len(cheap_deals)}")
+        print(f"  - High Discount (≥{CONFIG['discount_threshold']}%): {len(high_discount)}")
+        print(f"  - Electronics: {len(electronics_alerts)}")
+        print(f"  - Other: {len(other_alerts)}")
         
-        # Combine and deduplicate alert-worthy deals
-        alert_deals = list({d['name']: d for d in (cheap_deals + high_discount)}.values())
+        # Combine and deduplicate - separate electronics from others
+        other_deals_dict = {d['name']: d for d in other_alerts}
+        other_deals = list(other_deals_dict.values())
         
         # Sort by discount
-        alert_deals.sort(key=lambda x: x['discount'], reverse=True)
+        other_deals.sort(key=lambda x: x['discount'], reverse=True)
         electronics_alerts.sort(key=lambda x: x['discount'], reverse=True)
         
-        if alert_deals or electronics_alerts:
-            if alert_deals:
-                print("\n🔥 GENERAL DEALS:")
-                for i, deal in enumerate(alert_deals[:10], 1):
+        if other_deals or electronics_alerts:
+            if other_deals:
+                print("\n🔥 OTHER NEW DEALS:")
+                for i, deal in enumerate(other_deals[:10], 1):
                     change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
                     print(f"{change_marker} {i}. {deal['name'][:60]}")
                     print(f"   ₹{deal['price']} ({deal['discount']}% off)")
@@ -478,7 +493,7 @@ class AmazonPriceTracker:
                     print()
             
             if electronics_alerts:
-                print("\n💻 ELECTRONICS DEALS:")
+                print("\n💻 ELECTRONICS NEW DEALS:")
                 for i, deal in enumerate(electronics_alerts[:10], 1):
                     change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
                     print(f"{change_marker} {i}. {deal['name'][:60]}")
@@ -486,8 +501,6 @@ class AmazonPriceTracker:
                     if deal['change_type'] == 'price_drop':
                         print(f"   Price dropped from ₹{deal['old_price']} ({deal['price_drop_pct']}% drop)")
                     print()
-        else:
-            print("\n✗ No new deals or price drops found")
         
         return {
             'total': len(self.deals),
@@ -495,16 +508,34 @@ class AmazonPriceTracker:
             'price_drops': len(self.price_drops),
             'cheap': len(cheap_deals),
             'high_discount': len(high_discount),
-            'alert_deals': alert_deals[:10],
+            'alert_deals': other_deals[:10],
             'electronics_alerts': electronics_alerts[:10]
         }
     
     def send_summary_alert(self, analysis):
         """Send summary via Telegram"""
-        if not analysis or (not analysis.get('alert_deals') and not analysis.get('electronics_alerts')):
-            print("No alert-worthy deals to send")
+        if not analysis:
+            print("No analysis data")
             return
         
+        # Check if there are any NEW deals or price drops
+        new_count = analysis.get('new', 0)
+        price_drop_count = analysis.get('price_drops', 0)
+        
+        if new_count == 0 and price_drop_count == 0:
+            # No new deals or price drops - send simple message
+            message = f"""🛒 <b>Amazon Deals Check</b>
+
+✓ No new deals or price drops found
+
+All tracked products have the same prices as before.
+
+⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"""
+            self.send_telegram_alert(message)
+            print("✓ Sent 'no new deals' notification")
+            return
+        
+        # We have new deals or price drops - send detailed alert
         alert_deals = analysis.get('alert_deals', [])
         electronics_alerts = analysis.get('electronics_alerts', [])
         
@@ -513,8 +544,6 @@ class AmazonPriceTracker:
 📊 <b>Summary:</b>
 • New Deals: {analysis['new']}
 • Price Drops: {analysis['price_drops']}
-• Cheap Deals (≤₹{CONFIG['price_threshold']}): {analysis['cheap']}
-• High Discount (≥{CONFIG['discount_threshold']}%): {analysis['high_discount']}
 """
         
         if electronics_alerts:
@@ -523,24 +552,24 @@ class AmazonPriceTracker:
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
-                message += f"   ₹{deal['price']} ({deal['discount']}% off)\n"
+                message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
                 
                 if deal['change_type'] == 'price_drop':
-                    message += f"   Was: ₹{deal['old_price']} (dropped {deal['price_drop_pct']}%)\n"
+                    message += f"   Was: ₹{deal['old_price']:,} (dropped {deal['price_drop_pct']}%)\n"
                 
                 if deal['link']:
                     message += f"   <a href='{deal['link']}'>View Deal</a>\n"
         
         if alert_deals:
-            message += f"\n🔥 <b>Other Top Deals ({len(alert_deals)}):</b>\n"
+            message += f"\n🔥 <b>Other Deals ({len(alert_deals)}):</b>\n"
             for i, deal in enumerate(alert_deals[:5], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
-                message += f"   ₹{deal['price']} ({deal['discount']}% off)\n"
+                message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
                 
                 if deal['change_type'] == 'price_drop':
-                    message += f"   Was: ₹{deal['old_price']} (dropped {deal['price_drop_pct']}%)\n"
+                    message += f"   Was: ₹{deal['old_price']:,} (dropped {deal['price_drop_pct']}%)\n"
                 
                 if deal['link']:
                     message += f"   <a href='{deal['link']}'>View Deal</a>\n"
@@ -548,6 +577,7 @@ class AmazonPriceTracker:
         message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
         self.send_telegram_alert(message)
+        print("✓ Sent alert with new deals and price drops")
     
     def save_results(self):
         """Save results to files"""
@@ -555,28 +585,34 @@ class AmazonPriceTracker:
             print("No deals to save")
             return
         
-        # Save all deals
+        # Save all deals (for reference)
         with open('amazon_deals.json', 'w', encoding='utf-8') as f:
             json.dump(self.deals, f, indent=2, ensure_ascii=False)
-        print("✓ Saved all deals to amazon_deals.json")
+        print(f"✓ Saved {len(self.deals)} total deals to amazon_deals.json")
         
-        # Save only new deals and price drops
+        # Save only new deals and price drops (what gets alerted)
         new_and_drops = self.new_deals + self.price_drops
         if new_and_drops:
             with open('amazon_deals_new.json', 'w', encoding='utf-8') as f:
                 json.dump(new_and_drops, f, indent=2, ensure_ascii=False)
-            print(f"✓ Saved {len(new_and_drops)} new deals to amazon_deals_new.json")
+            print(f"✓ Saved {len(new_and_drops)} new/changed deals to amazon_deals_new.json")
+        else:
+            # Save empty file to indicate no new deals
+            with open('amazon_deals_new.json', 'w', encoding='utf-8') as f:
+                json.dump([], f, indent=2, ensure_ascii=False)
+            print("✓ No new deals - saved empty amazon_deals_new.json")
         
         # Save price changes summary
         price_changes = {
             'timestamp': datetime.now().isoformat(),
             'new_deals': len(self.new_deals),
             'price_drops': len(self.price_drops),
+            'total_scraped': len(self.deals),
             'deals': new_and_drops
         }
         with open('price_changes.json', 'w', encoding='utf-8') as f:
             json.dump(price_changes, f, indent=2, ensure_ascii=False)
-        print("✓ Saved price changes to price_changes.json")
+        print("✓ Saved price changes summary to price_changes.json")
     
     def run(self):
         """Main execution"""
@@ -590,11 +626,8 @@ class AmazonPriceTracker:
             # Save results
             self.save_results()
             
-            # Send alerts
-            if analysis and (analysis['new'] > 0 or analysis['price_drops'] > 0 or analysis.get('electronics_alerts')):
-                self.send_summary_alert(analysis)
-            else:
-                print("\n✓ No new deals or price drops - No alert sent")
+            # Send alerts - always send something
+            self.send_summary_alert(analysis)
             
             print("\n" + "="*60)
             print("TRACKING COMPLETE")
