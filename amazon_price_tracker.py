@@ -163,40 +163,133 @@ class AmazonPriceTracker:
         except Exception as e:
             print(f"Error saving price history: {e}")
         
+    def split_message(self, message, max_length=4000):
+        """Split a long message into chunks at safe points (after complete deal entries)"""
+        if len(message) <= max_length:
+            return [message]
+        
+        chunks = []
+        current_pos = 0
+        message_length = len(message)
+        
+        while current_pos < message_length:
+            # Calculate remaining length
+            remaining = message_length - current_pos
+            
+            if remaining <= max_length:
+                # Last chunk - take everything remaining
+                chunk = message[current_pos:]
+                chunks.append(chunk)
+                break
+            
+            # Find a safe split point (after a complete deal entry)
+            # Look for the end of a deal entry (after </a> tag and newline)
+            search_end = current_pos + max_length
+            safe_split = -1
+            
+            # Look backwards from max_length for a safe split point
+            for i in range(search_end, current_pos + max_length - 200, -1):
+                if i >= len(message):
+                    continue
+                # Check if we're at the end of a deal entry
+                # Pattern: </a>\n or \n\n (double newline between deals)
+                if i + 1 < len(message):
+                    if message[i:i+4] == '</a>' and (i+4 >= len(message) or message[i+4] == '\n'):
+                        # Found end of a deal, find the next newline
+                        next_nl = message.find('\n', i + 4)
+                        if next_nl > 0:
+                            safe_split = next_nl + 1
+                            break
+                    elif i > 0 and message[i-1:i+1] == '\n\n':
+                        # Double newline - safe to split here
+                        safe_split = i + 1
+                        break
+            
+            # If no safe split found, find last newline
+            if safe_split == -1:
+                safe_split = message.rfind('\n', current_pos, current_pos + max_length)
+                if safe_split == -1:
+                    # Last resort: split at max_length
+                    safe_split = current_pos + max_length
+            
+            # Extract chunk
+            chunk = message[current_pos:safe_split]
+            
+            # Close any open HTML tags in this chunk
+            open_b_tags = chunk.count('<b>') - chunk.count('</b>')
+            open_a_tags = chunk.count('<a') - chunk.count('</a>')
+            
+            # Close open tags in reverse order
+            for _ in range(open_a_tags):
+                chunk += '</a>'
+            for _ in range(open_b_tags):
+                chunk += '</b>'
+            
+            chunks.append(chunk)
+            current_pos = safe_split
+            
+            # Add continuation header for subsequent chunks
+            if current_pos < message_length:
+                chunk_header = f"\n\n📄 <b>Continued...</b> (Part {len(chunks) + 1})\n"
+                # Adjust current_pos to account for header in next chunk
+                # We'll prepend it to the next chunk instead
+        
+        # Add part numbers to chunks (except first)
+        for i in range(1, len(chunks)):
+            chunks[i] = f"📄 <b>Part {i + 1} of {len(chunks)}</b>\n\n" + chunks[i]
+        
+        return chunks
+    
     def send_telegram_alert(self, message):
-        """Send alert via Telegram"""
+        """Send alert via Telegram (splits into multiple messages if needed)"""
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
             print("⚠ Telegram not configured, skipping notification")
             print(f"   TELEGRAM_BOT_TOKEN: {'Set' if TELEGRAM_BOT_TOKEN else 'NOT SET'}")
             print(f"   TELEGRAM_CHAT_ID: {'Set' if TELEGRAM_CHAT_ID else 'NOT SET'}")
             return
         
-        try:
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-            data = {
-                'chat_id': TELEGRAM_CHAT_ID,
-                'text': message,
-                'parse_mode': 'HTML'
-            }
-            print(f"📤 Sending Telegram message ({len(message)} chars)...")
-            response = requests.post(url, data=data, timeout=10)
-            
-            if response.status_code == 200:
-                result = response.json()
-                if result.get('ok'):
-                    print("✓ Telegram notification sent successfully")
-                else:
-                    print(f"✗ Telegram API error: {result.get('description', 'Unknown error')}")
-            else:
-                print(f"✗ Telegram HTTP error: {response.status_code}")
-                print(f"   Response: {response.text[:200]}")
+        # Split message if too long
+        TELEGRAM_MAX_LENGTH = 4096
+        chunks = self.split_message(message, max_length=TELEGRAM_MAX_LENGTH - 100)
+        
+        if len(chunks) > 1:
+            print(f"📤 Splitting message into {len(chunks)} parts ({len(message)} total chars)...")
+        
+        # Send each chunk
+        for i, chunk in enumerate(chunks, 1):
+            try:
+                url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+                data = {
+                    'chat_id': TELEGRAM_CHAT_ID,
+                    'text': chunk,
+                    'parse_mode': 'HTML'
+                }
+                print(f"📤 Sending Telegram message part {i}/{len(chunks)} ({len(chunk)} chars)...")
+                response = requests.post(url, data=data, timeout=10)
                 
-        except requests.exceptions.RequestException as e:
-            print(f"✗ Network error sending Telegram: {e}")
-        except Exception as e:
-            print(f"✗ Error sending Telegram: {e}")
-            import traceback
-            traceback.print_exc()
+                if response.status_code == 200:
+                    result = response.json()
+                    if result.get('ok'):
+                        print(f"✓ Telegram message part {i}/{len(chunks)} sent successfully")
+                        # Small delay between messages to avoid rate limiting
+                        if i < len(chunks):
+                            time.sleep(0.5)
+                    else:
+                        print(f"✗ Telegram API error in part {i}: {result.get('description', 'Unknown error')}")
+                        break
+                else:
+                    print(f"✗ Telegram HTTP error in part {i}: {response.status_code}")
+                    print(f"   Response: {response.text[:200]}")
+                    break
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"✗ Network error sending Telegram part {i}: {e}")
+                break
+            except Exception as e:
+                print(f"✗ Error sending Telegram part {i}: {e}")
+                import traceback
+                traceback.print_exc()
+                break
     
     def extract_price(self, text):
         """Extract price from text"""
@@ -887,18 +980,8 @@ All tracked products have the same prices as before.
         
         message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
-        # Telegram has a 4096 character limit - truncate if needed
-        TELEGRAM_MAX_LENGTH = 4096
-        original_length = len(message)
-        if original_length > TELEGRAM_MAX_LENGTH:
-            # Truncate message and add note
-            truncate_note = f"\n\n... (Message truncated - {original_length} chars total, showing first {TELEGRAM_MAX_LENGTH - 150} chars)"
-            truncated_message = message[:TELEGRAM_MAX_LENGTH - len(truncate_note) - 50]
-            truncated_message += truncate_note
-            truncated_message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-            message = truncated_message
-            print(f"⚠ Message too long ({original_length} chars), truncated to {len(message)} chars")
-        
+        # Message will be automatically split into multiple parts if too long
+        # send_telegram_alert handles splitting at safe points
         self.send_telegram_alert(message)
         print("✓ Sent alert with new deals and price drops")
     
