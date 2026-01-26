@@ -56,7 +56,25 @@ secrets.py
 
 # Logs
 *.log
+tracker_logs.txt
+tracker_logs_old.txt
 
 # Temporary files
 *.tmp
 temp/
+
+# Node modules
+node_modules/
+package-lock.json
+
+# Development/temporary documentation
+*_ANALYSIS.md
+*_MIGRATION.md
+EXECUTION_READY.md
+IMPLEMENTATION_*.md
+
+# Empty directories
+doclific/
+
+# Installation scripts (unrelated tools)
+install.sh

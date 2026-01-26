@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Amazon.in Price Tracker for GitHub Actions
 Monitors Amazon deals and sends Telegram notifications
 """
 
 import os
+import sys
 import json
 import csv
 import time
@@ -12,6 +14,12 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 import requests
 from pathlib import Path
+
+# Fix Windows Unicode encoding issues
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
@@ -461,9 +469,15 @@ class AmazonPriceTracker:
         
         old_data = self.price_history[product_key]
         old_price = old_data.get('price', 0)
+        already_alerted = old_data.get('alerted', False)
         
         if old_price == 0:
             return 'new'
+        
+        # If already alerted and price is same or higher, don't alert again
+        if already_alerted and product['price'] >= old_price:
+            print(f"✓ Already alerted, same/higher price: {product['name'][:50]} (₹{product['price']})")
+            return 'already_alerted'
         
         # Check if price dropped significantly
         price_drop_pct = ((old_price - product['price']) / old_price) * 100
@@ -488,12 +502,17 @@ class AmazonPriceTracker:
         product_key = self.get_product_key(product)
         
         if product_key:
+            # Preserve 'alerted' status if it exists
+            old_data = self.price_history.get(product_key, {})
+            alerted = old_data.get('alerted', False)
+            
             self.price_history[product_key] = {
                 'name': product['name'],
                 'price': product['price'],
                 'discount': product['discount'],
                 'last_seen': product['timestamp'],
-                'asin': product.get('asin', '')
+                'asin': product.get('asin', ''),
+                'alerted': alerted  # Preserve alerted status
             }
     
     def scrape_all_deals(self):
@@ -794,14 +813,15 @@ class AmazonPriceTracker:
             change_type = self.check_price_change(deal)
             deal['change_type'] = change_type
             
-            # Update price history
+            # Update price history (but don't mark as alerted yet)
             self.update_price_history(deal)
             
-            # Categorize
+            # Categorize - only add if it's truly new or has a price drop
             if change_type == 'new':
                 self.new_deals.append(deal)
             elif change_type == 'price_drop':
                 self.price_drops.append(deal)
+            # Skip 'same', 'minor_drop', and 'already_alerted'
         
         # Save updated price history
         self.save_price_history()
@@ -893,6 +913,26 @@ class AmazonPriceTracker:
             'fresh_alerts': fresh_deals_list[:10]
         }
     
+    def format_category_name(self, category):
+        """Format category name for display"""
+        if not category:
+            return "General"
+        
+        # Handle special categories
+        if category == 'electronics_featured':
+            return "Electronics"
+        if category.startswith('fresh_'):
+            # Convert fresh_fruits -> Fruits, fresh_vegetables -> Vegetables
+            cat = category.replace('fresh_', '').replace('_', ' ').title()
+            return f"Fresh: {cat}"
+        if category.startswith('electronics_'):
+            cat = category.replace('electronics_', '').replace('_', ' ').title()
+            return f"Electronics: {cat}"
+        
+        # Format regular categories
+        formatted = category.replace('-', ' ').replace('_', ' ').title()
+        return formatted
+    
     def send_summary_alert(self, analysis):
         """Send summary via Telegram"""
         print("\n" + "="*60)
@@ -940,8 +980,10 @@ All tracked products have the same prices as before.
             message += f"\n💻 <b>Electronics Deals ({len(electronics_alerts)}):</b>\n"
             for i, deal in enumerate(electronics_alerts[:max_deals_per_cat], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                category_name = self.format_category_name(deal.get('category', ''))
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   📁 {category_name}\n"
                 message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
                 
                 if deal['change_type'] == 'price_drop':
@@ -954,8 +996,10 @@ All tracked products have the same prices as before.
             message += f"\n🛒 <b>Amazon Fresh Deals ({len(fresh_alerts)}):</b>\n"
             for i, deal in enumerate(fresh_alerts[:max_deals_per_cat], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                category_name = self.format_category_name(deal.get('category', ''))
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   📁 {category_name}\n"
                 message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
                 
                 if deal['change_type'] == 'price_drop':
@@ -968,8 +1012,10 @@ All tracked products have the same prices as before.
             message += f"\n🔥 <b>Other Deals ({len(alert_deals)}):</b>\n"
             for i, deal in enumerate(alert_deals[:max_deals_per_cat], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                category_name = self.format_category_name(deal.get('category', ''))
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   📁 {category_name}\n"
                 message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
                 
                 if deal['change_type'] == 'price_drop':
@@ -984,6 +1030,26 @@ All tracked products have the same prices as before.
         # send_telegram_alert handles splitting at safe points
         self.send_telegram_alert(message)
         print("✓ Sent alert with new deals and price drops")
+        
+        # Mark all alerted deals as 'alerted' in price history
+        self.mark_deals_as_alerted(analysis)
+    
+    def mark_deals_as_alerted(self, analysis):
+        """Mark all deals that were sent in Telegram as 'alerted' in price history"""
+        alert_deals = analysis.get('alert_deals', [])
+        electronics_alerts = analysis.get('electronics_alerts', [])
+        fresh_alerts = analysis.get('fresh_alerts', [])
+        
+        all_alerted_deals = alert_deals + electronics_alerts + fresh_alerts
+        
+        for deal in all_alerted_deals:
+            product_key = self.get_product_key(deal)
+            if product_key and product_key in self.price_history:
+                self.price_history[product_key]['alerted'] = True
+        
+        # Save updated price history with alerted flags
+        self.save_price_history()
+        print(f"✓ Marked {len(all_alerted_deals)} deals as alerted in price history")
     
     def save_results(self):
         """Save results to files"""
