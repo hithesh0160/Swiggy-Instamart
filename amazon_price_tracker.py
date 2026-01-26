@@ -28,12 +28,10 @@ CONFIG = {
     'categories': [
         # Electronics & Computers
         'electronics',
-        'computers',
-        'mobile-phones',
+        'smartphones',
         'laptops',
         'tablets',
         'headphones',
-        'cameras',
         'televisions',
         'smart-home',
         'gaming',
@@ -41,40 +39,21 @@ CONFIG = {
         # Fashion & Apparel
         'fashion',
         'mens-clothing',
-        'womens-clothing',
-        'kids-clothing',
         'footwear',
         'watches',
-        'jewellery',
-        'bags',
         
         # Home & Kitchen
         'home',
         'kitchen',
         'furniture',
         'home-decor',
-        'bedding',
-        'bath',
         'garden',
         'tools',
-        
-        # Books & Media
-        'books',
-        'kindle',
-        'movies-tv',
-        'music',
-        
-        # Health & Personal Care
-        'beauty',
-        'health',
-        'personal-care',
-        'baby-products',
-        
+                        
         # Sports & Outdoors
         'sports',
         'outdoor',
         'fitness',
-        'cycling',
         
         # Grocery & Food
         'grocery',
@@ -84,10 +63,6 @@ CONFIG = {
         
         # Automotive
         'automotive',
-        'car-accessories',
-        
-        # Pet Supplies
-        'pet-supplies',
         
         # Toys & Games
         'toys',
@@ -97,18 +72,13 @@ CONFIG = {
         'office-products',
         'stationery',
         
-        # Industrial & Scientific
-        'industrial',
-        
         # Musical Instruments
-        'musical-instruments',
+        'Guitar',
     ],
     'amazon_fresh_categories': [
         # Fresh Produce
-        'fresh-fruits',
-        'fresh-vegetables',
-        'organic-fruits',
-        'organic-vegetables',
+        'fruits',
+        'vegetables',
         
         # Dairy & Eggs
         'dairy-products',
@@ -117,26 +87,14 @@ CONFIG = {
         'cheese',
         'butter',
         'yogurt',
-        
-        # Meat & Seafood
-        'meat',
-        'chicken',
-        'fish',
-        'seafood',
-        'frozen-meat',
-        
+                
         # Bakery
-        'bread',
-        'bakery',
         'cakes',
         'pastries',
         
         # Beverages
         'fresh-juices',
         'soft-drinks',
-        'water',
-        'tea',
-        'coffee',
         
         # Snacks & Sweets
         'chocolates',
@@ -146,22 +104,13 @@ CONFIG = {
         'dry-fruits',
         
         # Frozen Foods
-        'frozen-foods',
         'ice-cream',
-        'frozen-vegetables',
         
         # Pantry Staples
         'rice',
-        'wheat',
-        'flour',
-        'pulses',
-        'spices',
-        'oil',
-        'salt-sugar',
         
         # Personal Care (Fresh section)
         'fresh-personal-care',
-        'fresh-baby-care',
         
         # Household Essentials
         'fresh-household',
