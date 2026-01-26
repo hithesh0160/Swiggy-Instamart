@@ -166,7 +166,9 @@ class AmazonPriceTracker:
     def send_telegram_alert(self, message):
         """Send alert via Telegram"""
         if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-            print("Telegram not configured, skipping notification")
+            print("⚠ Telegram not configured, skipping notification")
+            print(f"   TELEGRAM_BOT_TOKEN: {'Set' if TELEGRAM_BOT_TOKEN else 'NOT SET'}")
+            print(f"   TELEGRAM_CHAT_ID: {'Set' if TELEGRAM_CHAT_ID else 'NOT SET'}")
             return
         
         try:
@@ -176,15 +178,25 @@ class AmazonPriceTracker:
                 'text': message,
                 'parse_mode': 'HTML'
             }
+            print(f"📤 Sending Telegram message ({len(message)} chars)...")
             response = requests.post(url, data=data, timeout=10)
             
             if response.status_code == 200:
-                print("✓ Telegram notification sent")
+                result = response.json()
+                if result.get('ok'):
+                    print("✓ Telegram notification sent successfully")
+                else:
+                    print(f"✗ Telegram API error: {result.get('description', 'Unknown error')}")
             else:
-                print(f"✗ Telegram error: {response.status_code}")
+                print(f"✗ Telegram HTTP error: {response.status_code}")
+                print(f"   Response: {response.text[:200]}")
                 
+        except requests.exceptions.RequestException as e:
+            print(f"✗ Network error sending Telegram: {e}")
         except Exception as e:
-            print(f"Error sending Telegram: {e}")
+            print(f"✗ Error sending Telegram: {e}")
+            import traceback
+            traceback.print_exc()
     
     def extract_price(self, text):
         """Extract price from text"""
@@ -713,7 +725,8 @@ class AmazonPriceTracker:
                 'cheap': 0,
                 'high_discount': 0,
                 'alert_deals': [],
-                'electronics_alerts': []
+                'electronics_alerts': [],
+                'fresh_alerts': []
             }
         
         # Further filter by thresholds
@@ -789,9 +802,15 @@ class AmazonPriceTracker:
     
     def send_summary_alert(self, analysis):
         """Send summary via Telegram"""
+        print("\n" + "="*60)
+        print("SENDING TELEGRAM ALERT")
+        print("="*60)
+        
         if not analysis:
-            print("No analysis data")
+            print("⚠ No analysis data - cannot send alert")
             return
+        
+        print(f"Analysis data received: {list(analysis.keys())}")
         
         # Check if there are any NEW deals or price drops
         new_count = analysis.get('new', 0)
