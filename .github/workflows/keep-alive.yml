@@ -1,0 +1,25 @@
+name: Keep Repository Active
+
+# This workflow runs daily to keep the repository active
+# This prevents GitHub from pausing scheduled workflows
+# Runs at 12:00 UTC (5:30 PM IST) daily
+
+on:
+  schedule:
+    # Run daily at 12:00 UTC (5:30 PM IST) to keep repo active
+    - cron: '0 12 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    
+    steps:
+      - name: Keep Repository Active
+        run: |
+          echo "Repository activity check - $(date)"
+          echo "This workflow keeps scheduled workflows active"
+          echo "Last run: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
