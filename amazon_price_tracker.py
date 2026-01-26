@@ -23,14 +23,149 @@ CONFIG = {
     'price_threshold': 500,  # Alert for products under ₹500
     'discount_threshold': 50,  # Alert for >50% discount
     'price_drop_threshold': 20,  # Alert if price drops by >20%
-    'max_products': 30,  # Reduced from 50 to save time
+    'max_products': 20,  # Reduced to handle many categories efficiently
     'only_new_deals': True,  # Only alert on NEW deals or price drops
     'categories': [
+        # Electronics & Computers
         'electronics',
-        'books',
-        'home',
+        'computers',
+        'mobile-phones',
+        'laptops',
+        'tablets',
+        'headphones',
+        'cameras',
+        'televisions',
+        'smart-home',
+        'gaming',
+        
+        # Fashion & Apparel
         'fashion',
-        'grocery'
+        'mens-clothing',
+        'womens-clothing',
+        'kids-clothing',
+        'footwear',
+        'watches',
+        'jewellery',
+        'bags',
+        
+        # Home & Kitchen
+        'home',
+        'kitchen',
+        'furniture',
+        'home-decor',
+        'bedding',
+        'bath',
+        'garden',
+        'tools',
+        
+        # Books & Media
+        'books',
+        'kindle',
+        'movies-tv',
+        'music',
+        
+        # Health & Personal Care
+        'beauty',
+        'health',
+        'personal-care',
+        'baby-products',
+        
+        # Sports & Outdoors
+        'sports',
+        'outdoor',
+        'fitness',
+        'cycling',
+        
+        # Grocery & Food
+        'grocery',
+        'food',
+        'beverages',
+        'snacks',
+        
+        # Automotive
+        'automotive',
+        'car-accessories',
+        
+        # Pet Supplies
+        'pet-supplies',
+        
+        # Toys & Games
+        'toys',
+        'games',
+        
+        # Office & Stationery
+        'office-products',
+        'stationery',
+        
+        # Industrial & Scientific
+        'industrial',
+        
+        # Musical Instruments
+        'musical-instruments',
+    ],
+    'amazon_fresh_categories': [
+        # Fresh Produce
+        'fresh-fruits',
+        'fresh-vegetables',
+        'organic-fruits',
+        'organic-vegetables',
+        
+        # Dairy & Eggs
+        'dairy-products',
+        'milk',
+        'eggs',
+        'cheese',
+        'butter',
+        'yogurt',
+        
+        # Meat & Seafood
+        'meat',
+        'chicken',
+        'fish',
+        'seafood',
+        'frozen-meat',
+        
+        # Bakery
+        'bread',
+        'bakery',
+        'cakes',
+        'pastries',
+        
+        # Beverages
+        'fresh-juices',
+        'soft-drinks',
+        'water',
+        'tea',
+        'coffee',
+        
+        # Snacks & Sweets
+        'chocolates',
+        'biscuits',
+        'chips',
+        'nuts',
+        'dry-fruits',
+        
+        # Frozen Foods
+        'frozen-foods',
+        'ice-cream',
+        'frozen-vegetables',
+        
+        # Pantry Staples
+        'rice',
+        'wheat',
+        'flour',
+        'pulses',
+        'spices',
+        'oil',
+        'salt-sugar',
+        
+        # Personal Care (Fresh section)
+        'fresh-personal-care',
+        'fresh-baby-care',
+        
+        # Household Essentials
+        'fresh-household',
+        'cleaning-supplies',
     ],
     'search_queries': [
         'lightning deals',
@@ -348,6 +483,14 @@ class AmazonPriceTracker:
                 electronics_products = self.scrape_electronics_adaptive(page)
                 self.deals.extend(electronics_products)
                 
+                # Scrape deals from all categories
+                category_deals = self.scrape_category_deals(page)
+                self.deals.extend(category_deals)
+                
+                # Scrape Amazon Fresh deals
+                fresh_deals = self.scrape_amazon_fresh(page)
+                self.deals.extend(fresh_deals)
+                
             finally:
                 browser.close()
         
@@ -431,6 +574,132 @@ class AmazonPriceTracker:
         
         return filtered_products
     
+    def scrape_category_deals(self, page):
+        """Scrape deals from all configured categories"""
+        print("\n" + "="*60)
+        print("CATEGORY DEALS - SCRAPING ALL CATEGORIES")
+        print("="*60)
+        
+        all_category_deals = []
+        categories = CONFIG['categories']
+        
+        print(f"Scraping {len(categories)} categories...")
+        
+        for i, category in enumerate(categories, 1):
+            try:
+                print(f"\n[{i}/{len(categories)}] Scraping category: {category}")
+                
+                # Use search query pattern: "category deals" which is most reliable
+                # This searches for deals within that category
+                search_query = f"{category} deals"
+                url = f"https://www.amazon.in/s?k={search_query.replace(' ', '+')}"
+                
+                products = self.scrape_deals_page(page, url, category)
+                
+                if products:
+                    all_category_deals.extend(products)
+                    print(f"✓ Found {len(products)} products in {category}")
+                else:
+                    # Try alternative: just the category name
+                    print(f"⚠ No products with 'deals', trying category search...")
+                    url = f"https://www.amazon.in/s?k={category.replace(' ', '+')}"
+                    products = self.scrape_deals_page(page, url, category)
+                    if products:
+                        all_category_deals.extend(products)
+                        print(f"✓ Found {len(products)} products in {category} (category search)")
+                
+                # Rate limiting - small delay between categories to avoid being blocked
+                time.sleep(1.5)
+                
+            except Exception as e:
+                print(f"✗ Error scraping category {category}: {e}")
+                continue
+        
+        print(f"\n✓ Total products from categories: {len(all_category_deals)}")
+        return all_category_deals
+    
+    def scrape_amazon_fresh(self, page):
+        """Scrape deals from Amazon Fresh categories"""
+        print("\n" + "="*60)
+        print("AMAZON FRESH - SCRAPING GROCERY DEALS")
+        print("="*60)
+        
+        all_fresh_deals = []
+        fresh_categories = CONFIG.get('amazon_fresh_categories', [])
+        
+        if not fresh_categories:
+            print("No Amazon Fresh categories configured")
+            return []
+        
+        print(f"Scraping {len(fresh_categories)} Amazon Fresh categories...")
+        
+        # First, try to access Amazon Fresh main page
+        try:
+            print("\n[1/2] Accessing Amazon Fresh main page...")
+            fresh_urls = [
+                "https://www.amazon.in/amazonfresh",
+                "https://www.amazon.in/amazonfresh?ref_=nav_cs_fresh",
+                "https://www.amazon.in/gp/browse.html?node=4859467031&ref_=nav_cs_fresh"
+            ]
+            
+            for url in fresh_urls:
+                try:
+                    products = self.scrape_deals_page(page, url, 'amazon_fresh_main')
+                    if products:
+                        all_fresh_deals.extend(products)
+                        print(f"✓ Found {len(products)} products on Amazon Fresh main page")
+                        break
+                except Exception as e:
+                    print(f"⚠ Could not access {url}: {e}")
+                    continue
+        except Exception as e:
+            print(f"⚠ Error accessing Amazon Fresh main page: {e}")
+        
+        # Scrape individual Fresh categories
+        print(f"\n[2/2] Scraping {len(fresh_categories)} Fresh categories...")
+        for i, category in enumerate(fresh_categories, 1):
+            try:
+                print(f"\n[{i}/{len(fresh_categories)}] Scraping Fresh category: {category}")
+                
+                # Try multiple search patterns for Amazon Fresh
+                search_patterns = [
+                    f"amazon fresh {category}",
+                    f"amazon fresh {category} deals",
+                    f"{category} amazon fresh"
+                ]
+                
+                products_found = False
+                for pattern in search_patterns:
+                    try:
+                        url = f"https://www.amazon.in/s?k={pattern.replace(' ', '+')}"
+                        products = self.scrape_deals_page(page, url, f'fresh_{category}')
+                        
+                        if products:
+                            all_fresh_deals.extend(products)
+                            print(f"✓ Found {len(products)} products in Fresh {category}")
+                            products_found = True
+                            break
+                    except Exception as e:
+                        continue
+                
+                if not products_found:
+                    print(f"⚠ No products found for Fresh {category}")
+                
+                # Rate limiting - small delay between categories
+                time.sleep(1.5)
+                
+            except Exception as e:
+                print(f"✗ Error scraping Fresh category {category}: {e}")
+                continue
+        
+        # Mark all as Amazon Fresh
+        for product in all_fresh_deals:
+            if 'category' not in product or not product['category'].startswith('fresh_'):
+                product['category'] = f"fresh_{product.get('category', 'amazon_fresh')}"
+        
+        print(f"\n✓ Total products from Amazon Fresh: {len(all_fresh_deals)}")
+        return all_fresh_deals
+    
     def analyze_deals(self):
         """Analyze and categorize deals"""
         if not self.deals:
@@ -441,13 +710,29 @@ class AmazonPriceTracker:
         print("DEAL ANALYSIS")
         print("="*60)
         
-        # Separate electronics
+        # Separate by category type
         electronics_deals = [d for d in self.deals if d.get('category') == 'electronics_featured']
-        other_deals = [d for d in self.deals if d.get('category') != 'electronics_featured']
+        fresh_deals = [d for d in self.deals if d.get('category', '').startswith('fresh_')]
+        other_deals = [d for d in self.deals if d.get('category') != 'electronics_featured' and not d.get('category', '').startswith('fresh_')]
         
         print(f"Total Deals Scraped: {len(self.deals)}")
         print(f"  - Electronics: {len(electronics_deals)}")
+        print(f"  - Amazon Fresh: {len(fresh_deals)}")
         print(f"  - Other Deals: {len(other_deals)}")
+        
+        # Category breakdown
+        category_counts = {}
+        for deal in self.deals:
+            cat = deal.get('category', 'unknown')
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        if category_counts:
+            print(f"\nCategory Breakdown:")
+            sorted_categories = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)
+            for cat, count in sorted_categories[:15]:  # Show top 15 categories
+                print(f"  - {cat}: {count} deals")
+            if len(sorted_categories) > 15:
+                print(f"  ... and {len(sorted_categories) - 15} more categories")
         
         # Check each deal for price changes
         for deal in self.deals:
@@ -485,11 +770,10 @@ class AmazonPriceTracker:
         cheap_deals = [d for d in alert_worthy if d['price'] <= CONFIG['price_threshold']]
         high_discount = [d for d in alert_worthy if d['discount'] >= CONFIG['discount_threshold']]
         
-        # Electronics from alert-worthy deals (only new or price drops)
+        # Separate alert-worthy deals by category
         electronics_alerts = [d for d in alert_worthy if d.get('category') == 'electronics_featured']
-        
-        # Other deals (not electronics)
-        other_alerts = [d for d in alert_worthy if d.get('category') != 'electronics_featured']
+        fresh_alerts = [d for d in alert_worthy if d.get('category', '').startswith('fresh_')]
+        other_alerts = [d for d in alert_worthy if d.get('category') != 'electronics_featured' and not d.get('category', '').startswith('fresh_')]
         
         print(f"New Deals: {len(self.new_deals)}")
         print(f"Price Drops: {len(self.price_drops)}")
@@ -497,20 +781,34 @@ class AmazonPriceTracker:
         print(f"  - Cheap Deals (≤₹{CONFIG['price_threshold']}): {len(cheap_deals)}")
         print(f"  - High Discount (≥{CONFIG['discount_threshold']}%): {len(high_discount)}")
         print(f"  - Electronics: {len(electronics_alerts)}")
+        print(f"  - Amazon Fresh: {len(fresh_alerts)}")
         print(f"  - Other: {len(other_alerts)}")
         
-        # Combine and deduplicate - separate electronics from others
+        # Combine and deduplicate - separate by category
         other_deals_dict = {d['name']: d for d in other_alerts}
         other_deals = list(other_deals_dict.values())
+        fresh_deals_dict = {d['name']: d for d in fresh_alerts}
+        fresh_deals_list = list(fresh_deals_dict.values())
         
         # Sort by discount
         other_deals.sort(key=lambda x: x['discount'], reverse=True)
         electronics_alerts.sort(key=lambda x: x['discount'], reverse=True)
+        fresh_deals_list.sort(key=lambda x: x['discount'], reverse=True)
         
-        if other_deals or electronics_alerts:
+        if other_deals or electronics_alerts or fresh_deals_list:
             if other_deals:
                 print("\n🔥 OTHER NEW DEALS:")
                 for i, deal in enumerate(other_deals[:10], 1):
+                    change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
+                    print(f"{change_marker} {i}. {deal['name'][:60]}")
+                    print(f"   ₹{deal['price']} ({deal['discount']}% off)")
+                    if deal['change_type'] == 'price_drop':
+                        print(f"   Price dropped from ₹{deal['old_price']} ({deal['price_drop_pct']}% drop)")
+                    print()
+            
+            if fresh_deals_list:
+                print("\n🛒 AMAZON FRESH NEW DEALS:")
+                for i, deal in enumerate(fresh_deals_list[:10], 1):
                     change_marker = "🆕" if deal['change_type'] == 'new' else "📉"
                     print(f"{change_marker} {i}. {deal['name'][:60]}")
                     print(f"   ₹{deal['price']} ({deal['discount']}% off)")
@@ -535,7 +833,8 @@ class AmazonPriceTracker:
             'cheap': len(cheap_deals),
             'high_discount': len(high_discount),
             'alert_deals': other_deals[:10],
-            'electronics_alerts': electronics_alerts[:10]
+            'electronics_alerts': electronics_alerts[:10],
+            'fresh_alerts': fresh_deals_list[:10]
         }
     
     def send_summary_alert(self, analysis):
@@ -564,6 +863,7 @@ All tracked products have the same prices as before.
         # We have new deals or price drops - send detailed alert
         alert_deals = analysis.get('alert_deals', [])
         electronics_alerts = analysis.get('electronics_alerts', [])
+        fresh_alerts = analysis.get('fresh_alerts', [])
         
         message = f"""🛒 <b>Amazon Deals Alert</b>
 
@@ -575,6 +875,20 @@ All tracked products have the same prices as before.
         if electronics_alerts:
             message += f"\n💻 <b>Electronics Deals ({len(electronics_alerts)}):</b>\n"
             for i, deal in enumerate(electronics_alerts[:5], 1):
+                change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                message += f"\n{change_marker}\n"
+                message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
+                
+                if deal['change_type'] == 'price_drop':
+                    message += f"   Was: ₹{deal['old_price']:,} (dropped {deal['price_drop_pct']}%)\n"
+                
+                if deal['link']:
+                    message += f"   <a href='{deal['link']}'>View Deal</a>\n"
+        
+        if fresh_alerts:
+            message += f"\n🛒 <b>Amazon Fresh Deals ({len(fresh_alerts)}):</b>\n"
+            for i, deal in enumerate(fresh_alerts[:5], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
@@ -660,7 +974,7 @@ All tracked products have the same prices as before.
             print("="*60)
             
         except Exception as e:
-            print(f"\n✗ Error: {e}")
+            print(f"\nError: {e}")
             import traceback
             traceback.print_exc()
             raise
