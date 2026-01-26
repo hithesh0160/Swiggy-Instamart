@@ -25,6 +25,7 @@ CONFIG = {
     'price_drop_threshold': 20,  # Alert if price drops by >20%
     'max_products': 20,  # Reduced to handle many categories efficiently
     'only_new_deals': True,  # Only alert on NEW deals or price drops
+    'telegram_deals_per_category': 15,  # Number of deals to show per category in Telegram (max 4096 chars)
     'categories': [
         # Electronics & Computers
         'electronics',
@@ -821,9 +822,11 @@ All tracked products have the same prices as before.
 • Price Drops: {analysis['price_drops']}
 """
         
+        max_deals_per_cat = CONFIG.get('telegram_deals_per_category', 15)
+        
         if electronics_alerts:
             message += f"\n💻 <b>Electronics Deals ({len(electronics_alerts)}):</b>\n"
-            for i, deal in enumerate(electronics_alerts[:5], 1):
+            for i, deal in enumerate(electronics_alerts[:max_deals_per_cat], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
@@ -837,7 +840,7 @@ All tracked products have the same prices as before.
         
         if fresh_alerts:
             message += f"\n🛒 <b>Amazon Fresh Deals ({len(fresh_alerts)}):</b>\n"
-            for i, deal in enumerate(fresh_alerts[:5], 1):
+            for i, deal in enumerate(fresh_alerts[:max_deals_per_cat], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
@@ -851,7 +854,7 @@ All tracked products have the same prices as before.
         
         if alert_deals:
             message += f"\n🔥 <b>Other Deals ({len(alert_deals)}):</b>\n"
-            for i, deal in enumerate(alert_deals[:5], 1):
+            for i, deal in enumerate(alert_deals[:max_deals_per_cat], 1):
                 change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
                 message += f"\n{change_marker}\n"
                 message += f"{i}. {deal['name'][:80]}\n"
@@ -864,6 +867,18 @@ All tracked products have the same prices as before.
                     message += f"   <a href='{deal['link']}'>View Deal</a>\n"
         
         message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        # Telegram has a 4096 character limit - truncate if needed
+        TELEGRAM_MAX_LENGTH = 4096
+        original_length = len(message)
+        if original_length > TELEGRAM_MAX_LENGTH:
+            # Truncate message and add note
+            truncate_note = f"\n\n... (Message truncated - {original_length} chars total, showing first {TELEGRAM_MAX_LENGTH - 150} chars)"
+            truncated_message = message[:TELEGRAM_MAX_LENGTH - len(truncate_note) - 50]
+            truncated_message += truncate_note
+            truncated_message += f"\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            message = truncated_message
+            print(f"⚠ Message too long ({original_length} chars), truncated to {len(message)} chars")
         
         self.send_telegram_alert(message)
         print("✓ Sent alert with new deals and price drops")
