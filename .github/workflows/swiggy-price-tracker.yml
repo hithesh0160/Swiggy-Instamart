@@ -1,0 +1,78 @@
+name: Swiggy Price Tracker
+
+on:
+  schedule:
+    # Run 4 times daily (IST times: 8am, 12pm, 6pm, 10pm)
+    - cron: '30 2,6,12,16 * * *'  # UTC times
+  
+  # Trigger on push to main branch
+  push:
+    branches:
+      - main
+    paths:
+      - 'swiggy_price_tracker.py'
+      - '.github/workflows/swiggy-price-tracker.yml'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  track-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          pip install playwright requests
+          python -m playwright install chromium --with-deps
+      
+      - name: Pull latest price history
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'actions@github.com'
+          git pull origin main || echo "Pull failed, continuing..."
+      
+      - name: Run Swiggy Price Tracker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python swiggy_price_tracker.py
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swiggy-deals-${{ github.run_number }}
+          path: |
+            swiggy_deals.json
+            swiggy_deals_new.json
+            screenshots/*.png
+          retention-days: 7
+      
+      - name: Commit price history
+        run: |
+          git add swiggy_deals.json swiggy_price_history.json swiggy_deals_new.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update Swiggy price history - $(date +'%Y-%m-%d %H:%M')"
+            git push || echo "Push failed - this is expected if no changes"
+          fi

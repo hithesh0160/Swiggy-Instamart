@@ -153,11 +153,27 @@ class AmazonPriceTracker:
         self.screenshots_dir.mkdir(exist_ok=True)
     
     def load_price_history(self):
-        """Load previous price history"""
+        """Load previous price history and migrate legacy keys if needed"""
         try:
             if Path('price_history.json').exists():
                 with open('price_history.json', 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    history = json.load(f)
+                
+                # Migrate legacy keys (e.g., 'asin_B0...' -> 'B0...')
+                migrated = {}
+                for key, data in history.items():
+                    new_key = key
+                    if key.startswith('asin_'):
+                        new_key = key.replace('asin_', '')
+                    elif key.startswith('name_'):
+                        # If it looks like a name-based key with price (old format)
+                        # name_..._123 -> name_...
+                        import re
+                        new_key = re.sub(r'_[0-9]+$', '', key)
+                    
+                    migrated[new_key] = data
+                
+                return migrated
         except Exception as e:
             print(f"Could not load price history: {e}")
         return {}
@@ -447,12 +463,12 @@ class AmazonPriceTracker:
         """Generate a consistent product key for tracking"""
         # Prefer ASIN if available
         if product.get('asin') and product['asin'].strip():
-            return f"asin_{product['asin']}"
+            return product['asin']
         
-        # Fallback to normalized name + price (to handle same product at different prices)
+        # Fallback to normalized name
         normalized_name = self.normalize_name(product['name'])
-        # Use first 100 chars of name to avoid key being too long
-        return f"name_{normalized_name[:100]}_{int(product['price'])}"
+        # Use first 120 chars of name to avoid key being too long
+        return f"name_{normalized_name[:120]}"
     
     def check_price_change(self, product):
         """Check if this is a new deal or price drop"""
@@ -502,9 +518,15 @@ class AmazonPriceTracker:
         product_key = self.get_product_key(product)
         
         if product_key:
-            # Preserve 'alerted' status if it exists
             old_data = self.price_history.get(product_key, {})
-            alerted = old_data.get('alerted', False)
+            
+            # Reset alerted flag if it's a new deal or price drop being processed
+            # This ensures mark_deals_as_alerted can set it to True AFTER notification
+            change_type = product.get('change_type')
+            if change_type in ['new', 'price_drop']:
+                alerted = False
+            else:
+                alerted = old_data.get('alerted', False)
             
             self.price_history[product_key] = {
                 'name': product['name'],
@@ -512,7 +534,7 @@ class AmazonPriceTracker:
                 'discount': product['discount'],
                 'last_seen': product['timestamp'],
                 'asin': product.get('asin', ''),
-                'alerted': alerted  # Preserve alerted status
+                'alerted': alerted
             }
     
     def scrape_all_deals(self):
@@ -568,16 +590,22 @@ class AmazonPriceTracker:
             finally:
                 browser.close()
         
-        # Remove duplicates
-        seen = set()
-        unique_deals = []
+        # Remove duplicates (prefer ones with ASIN or better discount)
+        seen_keys = {}
         for deal in self.deals:
-            key = f"{deal['name']}_{deal['price']}"
-            if key not in seen:
-                seen.add(key)
-                unique_deals.append(deal)
+            # Use a deduplication key (name + rough size/category)
+            # This is different from the history key to allow better intra-run dedupe
+            dedupe_key = f"{self.normalize_name(deal['name'])[:100]}"
+            
+            if dedupe_key not in seen_keys:
+                seen_keys[dedupe_key] = deal
+            else:
+                existing = seen_keys[dedupe_key]
+                # Keep better deal
+                if deal['discount'] > existing['discount'] or (not existing.get('asin') and deal.get('asin')):
+                    seen_keys[dedupe_key] = deal
         
-        self.deals = unique_deals
+        self.deals = list(seen_keys.values())
         print(f"\n✓ Total unique deals found: {len(self.deals)}")
     
     def scrape_electronics_adaptive(self, page):
@@ -1035,21 +1063,22 @@ All tracked products have the same prices as before.
         self.mark_deals_as_alerted(analysis)
     
     def mark_deals_as_alerted(self, analysis):
-        """Mark all deals that were sent in Telegram as 'alerted' in price history"""
-        alert_deals = analysis.get('alert_deals', [])
-        electronics_alerts = analysis.get('electronics_alerts', [])
-        fresh_alerts = analysis.get('fresh_alerts', [])
+        """Mark ALL identified new deals and price drops as 'alerted' in price history"""
+        # Mark everything we found, not just what was sent in the top 10
+        # This prevents "old" deals from cluttering future runs
+        all_to_mark = self.new_deals + self.price_drops
         
-        all_alerted_deals = alert_deals + electronics_alerts + fresh_alerts
-        
-        for deal in all_alerted_deals:
+        marked_count = 0
+        for deal in all_to_mark:
             product_key = self.get_product_key(deal)
             if product_key and product_key in self.price_history:
-                self.price_history[product_key]['alerted'] = True
+                if not self.price_history[product_key].get('alerted'):
+                    self.price_history[product_key]['alerted'] = True
+                    marked_count += 1
         
         # Save updated price history with alerted flags
         self.save_price_history()
-        print(f"✓ Marked {len(all_alerted_deals)} deals as alerted in price history")
+        print(f"✓ Marked {marked_count} NEW deals as alerted in price history")
     
     def save_results(self):
         """Save results to files"""
