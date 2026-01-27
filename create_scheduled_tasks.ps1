@@ -47,8 +47,8 @@ if ($confirm -ne 'Y' -and $confirm -ne 'y') {
 
 # Define schedule times (24-hour format)
 $schedules = @(
-    @{Time = "06:00"; Description = "Early morning deals"},
-    @{Time = "10:00"; Description = "Mid-morning refresh"},
+    @{Time = "08:30"; Description = "Morning check"},
+    @{Time = "11:30"; Description = "Late morning refresh"},
     @{Time = "14:00"; Description = "Afternoon deals"},
     @{Time = "18:00"; Description = "Evening peak"},
     @{Time = "21:00"; Description = "Prime time"},

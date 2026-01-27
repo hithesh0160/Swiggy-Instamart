@@ -5,8 +5,8 @@ on:
     # Run 6 times daily matching Windows schedule (IST times: 6am, 10am, 2pm, 6pm, 9pm, 11:30pm)
     # Note: GitHub pauses scheduled workflows if repo is inactive for 60+ days
     # To reactivate: Manually trigger the workflow once via workflow_dispatch
-    - cron: '30 0,4,8,12,15 * * *' # 00:30, 04:30, 08:30, 12:30, 15:30 UTC
-    - cron: '0 18 * * *'          # 18:00 UTC
+    - cron: '0 3,6,18 * * *'      # 03:00 (8:30 IST), 06:00 (11:30 IST), 18:00 (23:30 IST)
+    - cron: '30 8,12,15 * * *'    # 08:30 (14:00 IST), 12:30 (18:00 IST), 15:30 (21:00 IST)
   
   # Trigger on push to main branch (keeps workflow active)
   push:
