@@ -34,6 +34,17 @@ Write-Log "========================================="
 Set-Location $SCRIPT_DIR
 Write-Log "Working directory: $SCRIPT_DIR"
 
+# Sync with remote repository
+if (Get-Command git -ErrorAction SilentlyContinue) {
+    Write-Log "Attempting to pull latest changes from remote..."
+    try {
+        $gitPull = git pull origin main 2>&1
+        Write-Log "Git pull output: $gitPull"
+    } catch {
+        Write-Log "WARNING: Git pull failed: $_"
+    }
+}
+
 # Check if Python script exists
 if (-not (Test-Path $PYTHON_SCRIPT)) {
     Write-Host "ERROR: Python script not found: $PYTHON_SCRIPT" -ForegroundColor Red
@@ -62,6 +73,27 @@ try {
     if ($exitCode -eq 0) {
         Write-Host "`nSUCCESS: Tracker completed successfully" -ForegroundColor Green
         Write-Log "SUCCESS: Tracker completed successfully"
+
+        # Push results to GitHub
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            Write-Log "Syncing results with GitHub..."
+            try {
+                git add amazon_deals.json amazon_deals_new.json price_history.json price_changes.json
+                
+                # Check if there are changes to commit
+                $status = git status --porcelain
+                if ($status) {
+                    $commitMsg = "Update Amazon price history (Local) - $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
+                    git commit -m "$commitMsg"
+                    $gitPush = git push origin main 2>&1
+                    Write-Log "Git push successful: $gitPush"
+                } else {
+                    Write-Log "No changes to push."
+                }
+            } catch {
+                 Write-Log "WARNING: Git sync failed: $_"
+            }
+        }
     } else {
         Write-Host "`nERROR: Tracker failed with exit code $exitCode" -ForegroundColor Red
         Write-Log "ERROR: Tracker failed with exit code $exitCode"
