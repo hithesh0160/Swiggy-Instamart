@@ -11,12 +11,12 @@ if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 
 # Configuration
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
-$TRACKER_SCRIPT = Join-Path $SCRIPT_DIR "run_amazon_tracker.ps1"
-$TASK_NAME_PREFIX = "Amazon Price Tracker"
+$TRACKER_BAT = Join-Path $SCRIPT_DIR "run_silent.bat"
+$TASK_NAME_PREFIX = "Amazon Tracker" # Shortened to avoid potential length issues
 
-# Check if tracker script exists
-if (-not (Test-Path $TRACKER_SCRIPT)) {
-    Write-Error "Tracker script not found: $TRACKER_SCRIPT"
+# Check if tracker bat exists
+if (-not (Test-Path $TRACKER_BAT)) {
+    Write-Error "Tracker bridge not found: $TRACKER_BAT"
     pause
     exit 1
 }
@@ -55,80 +55,45 @@ $schedules = @(
     @{Time = "23:30"; Description = "Late night clearance"}
 )
 
-Write-Host ""
-Write-Host "Creating scheduled tasks..." -ForegroundColor Cyan
+# Configuration for the bridge
+$TEMP_BAT = Join-Path $SCRIPT_DIR "temp_setup_tasks.bat"
 
-$successCount = 0
-$failCount = 0
+Write-Host "Generating temporary setup script..." -ForegroundColor Cyan
+
+# Start building the batch file content
+$batContent = @(
+    "@echo off",
+    "echo Creating Amazon Tracker scheduled tasks...",
+    "echo."
+)
 
 foreach ($schedule in $schedules) {
     $taskName = "$TASK_NAME_PREFIX - $($schedule.Time)"
     
-    try {
-        # Remove existing task if it exists
-        $existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        if ($existingTask) {
-            Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-            Write-Host "  Removed existing task: $taskName" -ForegroundColor Yellow
-        }
-        
-        # Create action
-        $action = New-ScheduledTaskAction `
-            -Execute "PowerShell.exe" `
-            -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$TRACKER_SCRIPT`"" `
-            -WorkingDirectory $SCRIPT_DIR
-        
-        # Create trigger (daily at specified time)
-        $trigger = New-ScheduledTaskTrigger -Daily -At $schedule.Time
-        
-        # Create settings
-        $settings = New-ScheduledTaskSettingsSet `
-            -AllowStartIfOnBatteries `
-            -DontStopIfGoingOnBatteries `
-            -StartWhenAvailable `
-            -RunOnlyIfNetworkAvailable `
-            -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
-        
-        # Create principal (run with highest privileges)
-        $principal = New-ScheduledTaskPrincipal `
-            -UserId $currentUser `
-            -LogonType S4U `
-            -RunLevel Highest
-        
-        # Register task
-        Register-ScheduledTask `
-            -TaskName $taskName `
-            -Action $action `
-            -Trigger $trigger `
-            -Settings $settings `
-            -Principal $principal `
-            -Description "Amazon Price Tracker - $($schedule.Description)" | Out-Null
-        
-        Write-Host "  ✓ Created: $taskName" -ForegroundColor Green
-        $successCount++
-        
-    } catch {
-        Write-Host "  ✗ Failed: $taskName - $($_.Exception.Message)" -ForegroundColor Red
-        $failCount++
-    }
+    # In Batch/CMD, quoting a path with spaces is simple: "path"
+    # We use schtasks.exe directly in the batch file
+    $batContent += "echo   Creating: $taskName"
+    $batContent += "schtasks /Create /TN `"$taskName`" /TR `"$TRACKER_BAT`" /SC DAILY /ST $($schedule.Time):00 /RL HIGHEST /F >nul"
+    
+    # Check if last command succeeded in batch
+    $batContent += "if %errorlevel% equ 0 (echo     [OK] Success) else (echo     [FAIL] Failed with error code %errorlevel%)"
+    $batContent += "echo."
 }
 
+$batContent += "pause"
+
+# Write the batch file with UTF8 encoding (no BOM) for best CMD compatibility
+$batContent | Out-File -FilePath $TEMP_BAT -Encoding ascii
+
+Write-Host "Generation complete." -ForegroundColor Green
 Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Setup Complete!" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  Created: $successCount tasks" -ForegroundColor Green
-Write-Host "  Failed:  $failCount tasks" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
-Write-Host ""
-Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  1. Run 'setup_telegram_env.bat' to configure Telegram credentials" -ForegroundColor White
-Write-Host "  2. Test manually by running 'run_tracker.bat'" -ForegroundColor White
-Write-Host "  3. Check Task Scheduler to verify tasks are created" -ForegroundColor White
-Write-Host "  4. Monitor 'tracker_logs.txt' for execution logs" -ForegroundColor White
-Write-Host ""
-Write-Host "To view tasks: Open Task Scheduler > Task Scheduler Library" -ForegroundColor Cyan
-Write-Host "To disable a task: Right-click task > Disable" -ForegroundColor Cyan
-Write-Host "To delete all tasks: Run this script again or delete manually" -ForegroundColor Cyan
+Write-Host "============================" -ForegroundColor Yellow
+Write-Host "MANUAL STEP REQUIRED" -ForegroundColor Yellow
+Write-Host "============================" -ForegroundColor Yellow
+Write-Host "To ensure the tasks are created with the correct permissions:"
+Write-Host "1. I have created a file: $TEMP_BAT"
+Write-Host "2. Please RIGHT-CLICK that file and select 'Run as Administrator'."
+Write-Host "3. After it finishes, you can delete both '$TEMP_BAT' and 'run_task_setup.bat'."
 Write-Host ""
 
 pause
