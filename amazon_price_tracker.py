@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 import requests
+import re
 from pathlib import Path
 
 # Fix Windows Unicode encoding issues
@@ -153,25 +154,32 @@ class AmazonPriceTracker:
         self.screenshots_dir.mkdir(exist_ok=True)
     
     def load_price_history(self):
-        """Load previous price history and migrate legacy keys if needed"""
+        """Load previous price history and migrate all keys to name-based keys"""
         try:
             if Path('price_history.json').exists():
                 with open('price_history.json', 'r', encoding='utf-8') as f:
                     history = json.load(f)
                 
-                # Migrate legacy keys (e.g., 'asin_B0...' -> 'B0...')
+                # Migrate all keys to name-based strings to satisfy "pure name-based" tracking
                 migrated = {}
                 for key, data in history.items():
-                    new_key = key
-                    if key.startswith('asin_'):
-                        new_key = key.replace('asin_', '')
-                    elif key.startswith('name_'):
-                        # If it looks like a name-based key with price (old format)
-                        # name_..._123 -> name_...
-                        import re
-                        new_key = re.sub(r'_[0-9]+$', '', key)
+                    # Generate the standard name-based key for this entry
+                    # If we have the name in the data, use it; otherwise, use the old key
+                    if 'name' in data:
+                        new_key = f"name_{self.normalize_name(data['name'])[:120]}"
+                    else:
+                        # Fallback for corrupted/minimal entries
+                        new_key = key
                     
-                    migrated[new_key] = data
+                    # If multiple ASINs mapped to the same name, keep the one with better status
+                    if new_key in migrated:
+                        # Keep the one that was already alerted or has a better price?
+                        # Usually, if either was alerted, we should consider it alerted to be safe
+                        if data.get('alerted'):
+                            migrated[new_key]['alerted'] = True
+                        # Update price if this one is more recent (optional)
+                    else:
+                        migrated[new_key] = data
                 
                 return migrated
         except Exception as e:
@@ -460,14 +468,9 @@ class AmazonPriceTracker:
         return normalized
     
     def get_product_key(self, product):
-        """Generate a consistent product key for tracking"""
-        # Prefer ASIN if available
-        if product.get('asin') and product['asin'].strip():
-            return product['asin']
-        
-        # Fallback to normalized name
+        """Generate a consistent product key based ONLY on normalized name"""
         normalized_name = self.normalize_name(product['name'])
-        # Use first 120 chars of name to avoid key being too long
+        # Use a consistent prefix and length to match the migration logic
         return f"name_{normalized_name[:120]}"
     
     def check_price_change(self, product):

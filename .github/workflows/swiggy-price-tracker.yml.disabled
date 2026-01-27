@@ -1,19 +1,19 @@
 name: Swiggy Price Tracker
 
+# on:
+#   schedule:
+#     # Run 4 times daily (IST times: 8am, 12pm, 6pm, 10pm)
+#     - cron: '30 2,6,12,16 * * *'  # UTC times
+#   
+#   # Trigger on push to main branch
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - 'swiggy_price_tracker.py'
+#       - '.github/workflows/swiggy-price-tracker.yml'
 on:
-  schedule:
-    # Run 4 times daily (IST times: 8am, 12pm, 6pm, 10pm)
-    - cron: '30 2,6,12,16 * * *'  # UTC times
-  
-  # Trigger on push to main branch
-  push:
-    branches:
-      - main
-    paths:
-      - 'swiggy_price_tracker.py'
-      - '.github/workflows/swiggy-price-tracker.yml'
-  
-  # Allow manual trigger
+  # Allow manual trigger only
   workflow_dispatch:
 
 jobs:
