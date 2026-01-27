@@ -52,6 +52,12 @@ jobs:
           pip install playwright requests beautifulsoup4 lxml
           python -m playwright install chromium --with-deps
       
+      - name: Pull latest price history
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'actions@github.com'
+          git pull origin main || echo "Pull failed, continuing..."
+      
       - name: Run Amazon Price Tracker
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -74,9 +80,6 @@ jobs:
       
       - name: Commit price history
         run: |
-          git config --global user.name 'GitHub Actions Bot'
-          git config --global user.email 'actions@github.com'
-          git pull origin main || echo "Pull failed, continuing..."
           git add amazon_deals.json price_history.json price_changes.json amazon_deals_new.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
