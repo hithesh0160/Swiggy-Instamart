@@ -59,6 +59,12 @@ CONFIG = {
         'home-decor',
         'garden',
         'tools',
+        
+        # Clothing & Apparel
+        'shirts',
+        'tshirts',
+        'sweatshirts',
+        'hoodies',
                         
         # Sports & Outdoors
         'sports',
@@ -125,6 +131,12 @@ CONFIG = {
         # Household Essentials
         'fresh-household',
         'cleaning-supplies',
+        
+        # Clothing in Fresh (if any)
+        'shirts',
+        'tshirts',
+        'sweatshirts',
+        'hoodies',
     ],
     'search_queries': [
         'lightning deals',
@@ -452,6 +464,8 @@ class AmazonPriceTracker:
     
     def is_deal(self, price, discount):
         """Check if product qualifies as a deal"""
+        if discount <= 0:
+            return False
         if price <= CONFIG['price_threshold']:
             return True
         if discount >= CONFIG['discount_threshold']:
