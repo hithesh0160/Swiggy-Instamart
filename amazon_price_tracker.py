@@ -166,37 +166,63 @@ class AmazonPriceTracker:
         self.screenshots_dir.mkdir(exist_ok=True)
     
     def load_price_history(self):
-        """Load previous price history and migrate all keys to name-based keys"""
+        """Load and migrate price history to a unified key system"""
+        history_file = Path('price_history.json')
+        if not history_file.exists():
+            return {}
+            
         try:
-            if Path('price_history.json').exists():
-                with open('price_history.json', 'r', encoding='utf-8') as f:
-                    history = json.load(f)
+            with open(history_file, 'r', encoding='utf-8') as f:
+                history = json.load(f)
+            
+            # Load all and normalize keys
+            raw_entries = []
+            for k, v in history.items():
+                # Extract clean ASIN if the key is just an ASIN or has asin_ prefix
+                clean_key = k
+                if k.startswith('asin_'):
+                    clean_key = k[5:]
+                elif k.startswith('name_'):
+                    pass # Keep as is
+                else:
+                    # Check if it's a raw ASIN (usually 10 chars, alphanumeric)
+                    if len(k) == 10 and k.isalnum():
+                         pass # Keep as is (clean_key is raw ASIN)
                 
-                # Migrate all keys to name-based strings to satisfy "pure name-based" tracking
-                migrated = {}
-                for key, data in history.items():
-                    # Generate the standard name-based key for this entry
-                    # If we have the name in the data, use it; otherwise, use the old key
-                    if 'name' in data:
-                        new_key = f"name_{self.normalize_name(data['name'])[:120]}"
-                    else:
-                        # Fallback for corrupted/minimal entries
-                        new_key = key
-                    
-                    # If multiple ASINs mapped to the same name, keep the one with better status
-                    if new_key in migrated:
-                        # Keep the one that was already alerted or has a better price?
-                        # Usually, if either was alerted, we should consider it alerted to be safe
-                        if data.get('alerted'):
-                            migrated[new_key]['alerted'] = True
-                        # Update price if this one is more recent (optional)
-                    else:
-                        migrated[new_key] = data
+                raw_entries.append((clean_key, v))
+
+            # Migrate to unified keys: asin_{asin} (priority) or name_{norm_name}
+            migrated = {}
+            for old_key, data in raw_entries:
+                # Determine the best unified key for this entry
+                asin = data.get('asin') or (old_key if (len(old_key) == 10 and old_key.isalnum()) else None)
+                name = data.get('name', '')
                 
-                return migrated
+                if asin:
+                    new_key = f"asin_{asin}"
+                elif name:
+                    new_key = f"name_{self.normalize_name(name)[:120]}"
+                else:
+                    new_key = old_key if old_key.startswith('name_') else f"name_{old_key}"
+                
+                # Merge logic: if we have multiple existing entries for the same product
+                if new_key in migrated:
+                    # Keep the alerted=True status if it exists in either
+                    already_alerted = data.get('alerted', False) or migrated[new_key].get('alerted', False)
+                    migrated[new_key]['alerted'] = already_alerted
+                    # Keep the most recent last_seen
+                    if data.get('last_seen', '') > migrated[new_key].get('last_seen', ''):
+                        migrated[new_key]['last_seen'] = data.get('last_seen')
+                        migrated[new_key]['price'] = data.get('price')
+                else:
+                    # Ensure alerted exists and is boolean
+                    data['alerted'] = data.get('alerted', False)
+                    migrated[new_key] = data
+            
+            return migrated
         except Exception as e:
             print(f"Could not load price history: {e}")
-        return {}
+            return {}
     
     def save_price_history(self):
         """Save price history"""
@@ -473,19 +499,38 @@ class AmazonPriceTracker:
         return False
     
     def normalize_name(self, name):
-        """Normalize product name for consistent matching"""
+        """Normalize product name for consistent matching, removing dynamic parts"""
         import re
-        # Remove extra whitespace, convert to lowercase
-        normalized = ' '.join(name.lower().split())
-        # Remove special characters that might vary
+        if not name:
+            return ""
+        # Remove common dynamic prefixes/suffixes that change between runs
+        # Like "Deal of the Day:", "Limited time deal:", etc.
+        patterns_to_remove = [
+            r'(?i)deal of the day[:\s]*',
+            r'(?i)limited time deal[:\s]*',
+            r'(?i)lightning deal[:\s]*',
+            r'(?i)sponsored[:\s]*',
+            r'(?i)best seller[:\s]*',
+        ]
+        text = name
+        for pattern in patterns_to_remove:
+            text = re.sub(pattern, '', text)
+            
+        # Standard normalization: lowercase, strip, remove non-alphanumeric
+        normalized = ' '.join(text.lower().split())
         normalized = re.sub(r'[^\w\s]', '', normalized)
-        return normalized
+        return normalized.strip()
     
     def get_product_key(self, product):
-        """Generate a consistent product key based ONLY on normalized name"""
+        """Generate a consistent product key: ASIN-based if possible, else Name-based"""
+        if product.get('asin'):
+            return f"asin_{product['asin']}"
+        
         normalized_name = self.normalize_name(product['name'])
-        # Use a consistent prefix and length to match the migration logic
-        return f"name_{normalized_name[:120]}"
+        if normalized_name:
+            return f"name_{normalized_name[:120]}"
+        
+        return None
     
     def check_price_change(self, product):
         """Check if this is a new deal or price drop"""
