@@ -27,7 +27,7 @@ on:
 jobs:
   track-prices:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # Limit to 10 minutes max
+    timeout-minutes: 30  # 70+ categories need more than 10 minutes
     
     steps:
       - name: Checkout repository
@@ -51,11 +51,16 @@ jobs:
           pip install playwright requests beautifulsoup4 lxml
           python -m playwright install chromium --with-deps
       
+      - name: Clean up old screenshots
+        run: |
+          rm -rf screenshots/*.png
+          mkdir -p screenshots
+
       - name: Pull latest price history
         run: |
           git config --global user.name 'GitHub Actions Bot'
           git config --global user.email 'actions@github.com'
-          git pull origin main || echo "Pull failed, continuing..."
+          git pull --rebase origin main || echo "Pull failed, continuing..."
       
       - name: Run Amazon Price Tracker
         env:
@@ -84,5 +89,9 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "Update Amazon price history - $(date +'%Y-%m-%d %H:%M')"
-            git push || echo "Push failed - this is expected if no changes"
+            for i in 1 2 3; do
+              git pull --rebase origin main && git push origin main && break
+              echo "Push failed, retry $i/3..."
+              sleep 5
+            done
           fi

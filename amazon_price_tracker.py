@@ -10,7 +10,8 @@ import sys
 import json
 import csv
 import time
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from playwright.sync_api import sync_playwright
 import requests
 import re
@@ -138,6 +139,7 @@ CONFIG = {
         'sweatshirts',
         'hoodies',
     ],
+    'history_max_age_days': 90,  # Purge products not seen in 90 days
     'search_queries': [
         'lightning deals',
         'deals of the day'
@@ -218,6 +220,16 @@ class AmazonPriceTracker:
                     # Ensure alerted exists and is boolean
                     data['alerted'] = data.get('alerted', False)
                     migrated[new_key] = data
+            
+            # Purge old entries not seen in max_age_days
+            max_age = CONFIG.get('history_max_age_days', 90)
+            cutoff = (datetime.now() - timedelta(days=max_age)).isoformat()
+            old_count = 0
+            purged = {k: v for k, v in migrated.items() if v.get('last_seen', '') >= cutoff}
+            old_count = len(migrated) - len(purged)
+            if old_count > 0:
+                print(f"Purged {old_count} entries older than {max_age} days")
+                migrated = purged
             
             return migrated
         except Exception as e:
@@ -635,7 +647,7 @@ class AmazonPriceTracker:
                     url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
                     products = self.scrape_deals_page(page, url, query.replace(' ', '_'))
                     self.deals.extend(products)
-                    time.sleep(1)  # Rate limiting
+                    time.sleep(random.uniform(1.0, 2.0))  # Random rate limiting
                 
                 # Electronics with adaptive discount
                 electronics_products = self.scrape_electronics_adaptive(page)
@@ -684,7 +696,7 @@ class AmazonPriceTracker:
             url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
             products = self.scrape_deals_page(page, url, f'electronics_{query.replace(" ", "_")}')
             all_electronics.extend(products)
-            time.sleep(1)
+            time.sleep(random.uniform(1.0, 2.0))  # Random rate limiting
         
         if not all_electronics:
             print("✗ No electronics products found")
@@ -772,8 +784,8 @@ class AmazonPriceTracker:
                         all_category_deals.extend(products)
                         print(f"✓ Found {len(products)} products in {category} (category search)")
                 
-                # Rate limiting - small delay between categories to avoid being blocked
-                time.sleep(1.5)
+                # Rate limiting - random delay between categories (1-3s) to avoid detection
+                time.sleep(random.uniform(1.0, 3.0))
                 
             except Exception as e:
                 print(f"✗ Error scraping category {category}: {e}")
@@ -849,8 +861,8 @@ class AmazonPriceTracker:
                 if not products_found:
                     print(f"⚠ No products found for Fresh {category}")
                 
-                # Rate limiting - small delay between categories
-                time.sleep(1.5)
+                # Rate limiting - random delay between Fresh categories (1-3s)
+                time.sleep(random.uniform(1.0, 3.0))
                 
             except Exception as e:
                 print(f"✗ Error scraping Fresh category {category}: {e}")
