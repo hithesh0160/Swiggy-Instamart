@@ -168,68 +168,70 @@ class AmazonPriceTracker:
         self.screenshots_dir.mkdir(exist_ok=True)
     
     def load_price_history(self):
-        """Load and migrate price history to a unified key system"""
+        """Load price history from disk, normalizing keys to match get_product_key() output"""
         history_file = Path('price_history.json')
         if not history_file.exists():
             return {}
-            
+        
         try:
             with open(history_file, 'r', encoding='utf-8') as f:
-                history = json.load(f)
+                raw = json.load(f)
             
-            # Load all and normalize keys
-            raw_entries = []
-            for k, v in history.items():
-                # Extract clean ASIN if the key is just an ASIN or has asin_ prefix
-                clean_key = k
-                if k.startswith('asin_'):
-                    clean_key = k[5:]
-                elif k.startswith('name_'):
-                    pass # Keep as is
-                else:
-                    # Check if it's a raw ASIN (usually 10 chars, alphanumeric)
-                    if len(k) == 10 and k.isalnum():
-                         pass # Keep as is (clean_key is raw ASIN)
-                
-                raw_entries.append((clean_key, v))
-
-            # Migrate to unified keys: asin_{asin} (priority) or name_{norm_name}
             migrated = {}
-            for old_key, data in raw_entries:
-                # Determine the best unified key for this entry
-                asin = data.get('asin') or (old_key if (len(old_key) == 10 and old_key.isalnum()) else None)
-                name = data.get('name', '')
+            for k, v in raw.items():
+                # Determine the key that get_product_key() would generate
+                asin = v.get('asin')
+                name = v.get('name', '')
                 
+                # If the stored value has an ASIN, use asin_ prefix
                 if asin:
                     new_key = f"asin_{asin}"
+                elif k.startswith('asin_'):
+                    # Key already has asin_ prefix
+                    new_key = k
+                    # Also save the ASIN from the key into the value
+                    v['asin'] = k[5:]
+                elif k.startswith('name_'):
+                    # Key already has name_ prefix
+                    new_key = k
+                elif len(k) == 10 and k.isalnum():
+                    # Raw ASIN (10 chars, alphanumeric) as key
+                    new_key = f"asin_{k}"
+                    # Save the ASIN into the value
+                    v['asin'] = k
                 elif name:
+                    # Generate name-based key
                     new_key = f"name_{self.normalize_name(name)[:120]}"
                 else:
-                    new_key = old_key if old_key.startswith('name_') else f"name_{old_key}"
+                    # Fallback
+                    new_key = f"name_{k}"
                 
-                # Merge logic: if we have multiple existing entries for the same product
+                # Ensure required fields exist
+                v['alerted'] = v.get('alerted', False)
+                v['last_seen'] = v.get('last_seen', '')
+                v['price'] = v.get('price', 0)
+                
+                # Merge: if duplicate key, keep the entry with alerted=True or most recent
                 if new_key in migrated:
-                    # Keep the alerted=True status if it exists in either
-                    already_alerted = data.get('alerted', False) or migrated[new_key].get('alerted', False)
-                    migrated[new_key]['alerted'] = already_alerted
-                    # Keep the most recent last_seen
-                    if data.get('last_seen', '') > migrated[new_key].get('last_seen', ''):
-                        migrated[new_key]['last_seen'] = data.get('last_seen')
-                        migrated[new_key]['price'] = data.get('price')
+                    existing = migrated[new_key]
+                    merged_alerted = v['alerted'] or existing['alerted']
+                    # Keep the one with more recent last_seen
+                    if v['last_seen'] >= existing['last_seen']:
+                        v['alerted'] = merged_alerted
+                        migrated[new_key] = v
+                    else:
+                        existing['alerted'] = merged_alerted
                 else:
-                    # Ensure alerted exists and is boolean
-                    data['alerted'] = data.get('alerted', False)
-                    migrated[new_key] = data
+                    migrated[new_key] = v
             
             # Purge old entries not seen in max_age_days
             max_age = CONFIG.get('history_max_age_days', 90)
             cutoff = (datetime.now() - timedelta(days=max_age)).isoformat()
-            old_count = 0
-            purged = {k: v for k, v in migrated.items() if v.get('last_seen', '') >= cutoff}
-            old_count = len(migrated) - len(purged)
-            if old_count > 0:
-                print(f"Purged {old_count} entries older than {max_age} days")
-                migrated = purged
+            old_keys = [k for k, v in migrated.items() if v.get('last_seen', '') and v.get('last_seen', '') < cutoff]
+            for k in old_keys:
+                del migrated[k]
+            if old_keys:
+                print(f"Purged {len(old_keys)} entries older than {max_age} days")
             
             return migrated
         except Exception as e:
@@ -488,7 +490,11 @@ class AmazonPriceTracker:
                         'is_deal': self.is_deal(price, discount)
                     }
                     
-                    products.append(product)
+                    # Only keep if it's actually a deal and a good one
+                    if product['is_deal'] and self.is_good_deal(product):
+                        products.append(product)
+                    elif product['is_deal']:
+                        print(f"  Skipped (low quality deal): {name[:50]} - ₹{price} ({discount}% off)")
                     
                 except Exception as e:
                     continue
@@ -501,14 +507,32 @@ class AmazonPriceTracker:
             return []
     
     def is_deal(self, price, discount):
-        """Check if product qualifies as a deal"""
+        """Check if product qualifies as a REAL deal (not just any product)"""
         if discount <= 0:
             return False
+        # Must either be cheap OR have significant discount
         if price <= CONFIG['price_threshold']:
             return True
         if discount >= CONFIG['discount_threshold']:
             return True
         return False
+    
+    def is_good_deal(self, product):
+        """Additional quality check - is this actually a good deal?"""
+        price = product.get('price', 0)
+        discount = product.get('discount', 0)
+        name = product.get('name', '').lower()
+        
+        # Skip very generic/low-value items unless heavily discounted
+        low_value_keywords = ['pen', 'pencil', 'eraser', 'scale', 'sharpener', 'sticky notes', 'binder clip']
+        if any(kw in name for kw in low_value_keywords) and discount < 70:
+            return False
+        
+        # Skip if discount is good but price is still high (e.g., 50% off ₹10,000 = still ₹5,000)
+        if price > 2000 and discount < 30:
+            return False
+        
+        return True
     
     def normalize_name(self, name):
         """Normalize product name for consistent matching, removing dynamic parts"""
@@ -602,12 +626,17 @@ class AmazonPriceTracker:
             else:
                 alerted = old_data.get('alerted', False)
             
+            # Ensure ASIN is saved (extract from key if missing)
+            asin = product.get('asin', '')
+            if not asin and product_key.startswith('asin_'):
+                asin = product_key[5:]
+            
             self.price_history[product_key] = {
                 'name': product['name'],
                 'price': product['price'],
                 'discount': product['discount'],
                 'last_seen': product['timestamp'],
-                'asin': product.get('asin', ''),
+                'asin': asin,
                 'alerted': alerted
             }
     
