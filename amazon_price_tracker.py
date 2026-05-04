@@ -161,12 +161,20 @@ CONFIG = {
         'max_price': 50000   # Electronics can be expensive
     },
     'rtx5060_config': {
-        'min_discount': 10,  # Gaming laptops - even 10% off is good
-        'max_discount': 40,
+        'min_discount': 5,  # Gaming laptops - even 5% off is good
+        'max_discount': 30,
         'discount_step': 5,
-        'min_products': 3,
-        'max_price': 200000  # Gaming laptops can be very expensive
-    }
+        'min_products': 2,
+        'max_price': 300000  # Gaming laptops can be very expensive
+    },
+    'rtx5060_laptops': [
+        'rtx 5060 laptop',
+        'rtx5060 gaming laptop',
+        'laptop rtx 5060 16gb',
+        'rtx 5060 laptop 144hz',
+        'rtx 5060 i7',
+        'rtx 5060 amd laptop'
+    ],
 }
 
 class AmazonPriceTracker:
@@ -533,6 +541,10 @@ class AmazonPriceTracker:
         price = product.get('price', 0)
         discount = product.get('discount', 0)
         name = product.get('name', '').lower()
+        
+        # RTX 5060 laptops - always include regardless of price threshold
+        if 'rtx' in name and '5060' in name:
+            return True
         
         # Skip very generic/low-value items unless heavily discounted
         low_value_keywords = ['pen', 'pencil', 'eraser', 'scale', 'sharpener', 'sticky notes', 'binder clip']
@@ -1094,6 +1106,8 @@ class AmazonPriceTracker:
         if category.startswith('electronics_'):
             cat = category.replace('electronics_', '').replace('_', ' ').title()
             return f"Electronics: {cat}"
+        if category == 'rtx5060_laptops':
+            return "🎮 RTX 5060 Gaming Laptops"
         
         # Format regular categories
         formatted = category.replace('-', ' ').replace('_', ' ').title()
