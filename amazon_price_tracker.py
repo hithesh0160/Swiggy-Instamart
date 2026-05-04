@@ -1075,7 +1075,8 @@ class AmazonPriceTracker:
             'high_discount': len(high_discount),
             'alert_deals': other_deals[:10],
             'electronics_alerts': electronics_alerts[:10],
-            'fresh_alerts': fresh_deals_list[:10]
+            'fresh_alerts': fresh_deals_list[:10],
+            'rtx5060_alerts': rtx5060_alerts[:10]
         }
     
     def format_category_name(self, category):
@@ -1131,6 +1132,7 @@ All tracked products have the same prices as before.
         alert_deals = analysis.get('alert_deals', [])
         electronics_alerts = analysis.get('electronics_alerts', [])
         fresh_alerts = analysis.get('fresh_alerts', [])
+        rtx5060_alerts = analysis.get('rtx5060_alerts', [])
         
         message = f"""🛒 <b>Amazon Deals Alert</b>
 
