@@ -46,6 +46,7 @@ CONFIG = {
         'televisions',
         'smart-home',
         'gaming',
+        'rtx-5060-laptop',
         
         # Fashion & Apparel
         'fashion',
@@ -147,7 +148,10 @@ CONFIG = {
     'electronics_queries': [
         'tv deals',
         'laptop deals',
-        'smartphone deals'
+        'smartphone deals',
+        'rtx 5060 laptop deals',
+        'rtx 5060 gaming laptop',
+        'gaming laptop rtx 5060'
     ],
     'electronics_config': {
         'min_discount': 20,  # Start with 20% discount
@@ -155,6 +159,13 @@ CONFIG = {
         'discount_step': 10,  # Reduce by 10% each time
         'min_products': 5,   # Need at least 5 products
         'max_price': 50000   # Electronics can be expensive
+    },
+    'rtx5060_config': {
+        'min_discount': 10,  # Gaming laptops - even 10% off is good
+        'max_discount': 40,
+        'discount_step': 5,
+        'min_products': 3,
+        'max_price': 200000  # Gaming laptops can be very expensive
     }
 }
 
@@ -682,6 +693,28 @@ class AmazonPriceTracker:
                 electronics_products = self.scrape_electronics_adaptive(page)
                 self.deals.extend(electronics_products)
                 
+                # RTX 5060 Gaming Laptops - dedicated search
+                rtx_queries = [
+                    'rtx 5060 laptop',
+                    'rtx5060 gaming laptop',
+                    'laptop rtx 5060 16gb',
+                    'rtx 5060 laptop 144hz'
+                ]
+                print(f"\n{'='*60}")
+                print("RTX 5060 GAMING LAPTOPS")
+                print(f"{'='*60}")
+                for q in rtx_queries:
+                    url = f"https://www.amazon.in/s?k={q.replace(' ', '+')}"
+                    products = self.scrape_deals_page(page, url, f'rtx5060_{q.replace(" ", "_")}')
+                    if products:
+                        # Filter for actual RTX 5060 laptops with good discounts
+                        for p in products:
+                            if 'rtx' in p.get('name', '').lower() and '5060' in p.get('name', ''):
+                                p['category'] = 'rtx5060_laptops'
+                                self.deals.append(p)
+                        print(f"✓ Found {len([p for p in products if 'rtx' in p.get('name','').lower()])} RTX 5060 products")
+                    time.sleep(random.uniform(1.0, 2.0))
+                
                 # Scrape deals from all categories
                 category_deals = self.scrape_category_deals(page)
                 self.deals.extend(category_deals)
@@ -980,7 +1013,8 @@ class AmazonPriceTracker:
         # Separate alert-worthy deals by category
         electronics_alerts = [d for d in alert_worthy if d.get('category') == 'electronics_featured']
         fresh_alerts = [d for d in alert_worthy if d.get('category', '').startswith('fresh_')]
-        other_alerts = [d for d in alert_worthy if d.get('category') != 'electronics_featured' and not d.get('category', '').startswith('fresh_')]
+        rtx5060_alerts = [d for d in alert_worthy if d.get('category') == 'rtx5060_laptops']
+        other_alerts = [d for d in alert_worthy if d.get('category') != 'electronics_featured' and not d.get('category', '').startswith('fresh_') and d.get('category') != 'rtx5060_laptops']
         
         print(f"New Deals: {len(self.new_deals)}")
         print(f"Price Drops: {len(self.price_drops)}")
@@ -1106,6 +1140,22 @@ All tracked products have the same prices as before.
 """
         
         max_deals_per_cat = CONFIG.get('telegram_deals_per_category', 15)
+        
+        if rtx5060_alerts:
+            message += f"\n🎮 <b>RTX 5060 Gaming Laptops ({len(rtx5060_alerts)}):</b>\n"
+            for i, deal in enumerate(rtx5060_alerts[:max_deals_per_cat], 1):
+                change_marker = "🆕 NEW" if deal['change_type'] == 'new' else "📉 PRICE DROP"
+                category_name = self.format_category_name(deal.get('category', ''))
+                message += f"\n{change_marker}\n"
+                message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   📁 {category_name}\n"
+                message += f"   ₹{deal['price']:,} ({deal['discount']}% off)\n"
+                
+                if deal['change_type'] == 'price_drop':
+                    message += f"   Was: ₹{deal['old_price']:,} (dropped {deal['price_drop_pct']}%)\n"
+                
+                if deal['link']:
+                    message += f"   <a href='{deal['link']}'>View Deal</a>\n"
         
         if electronics_alerts:
             message += f"\n💻 <b>Electronics Deals ({len(electronics_alerts)}):</b>\n"
