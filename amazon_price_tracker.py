@@ -34,7 +34,7 @@ CONFIG = {
     'discount_threshold': 50,  # Alert for >50% discount
     'price_drop_threshold': 20,  # Alert if price drops by >20%
     'glitch_drop_threshold': 40,  # 🚨 ALERT if price drops >40% from history (Pricing Error)
-    'max_products': 25,  # Increased for Lightning Deals
+    'max_products': 50,  # Scrape up to 50 products per page
     'only_new_deals': True,  # Only alert on NEW deals or price drops
     'telegram_deals_per_category': 15,  # Number of deals to show per category in Telegram (max 4096 chars)
     
@@ -437,39 +437,56 @@ class AmazonPriceTracker:
         print('='*60)
         
         try:
-            page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            time.sleep(2)
+            page.goto(url, wait_until='networkidle', timeout=45000)
+            time.sleep(random.uniform(4, 7))
+            
+            # Check for CAPTCHA
+            page_text = page.inner_text('body')
+            if 'captcha' in page_text.lower() or 'sorry, we need to check' in page_text.lower():
+                print("✗ CAPTCHA detected - Amazon is blocking automated access")
+                return []
             
             # Scroll to load more products
-            for i in range(2):
+            for i in range(3):
                 page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
-                time.sleep(0.5)
+                time.sleep(random.uniform(1, 2))
             
             # Take screenshot
             screenshot_path = self.screenshots_dir / f'{category}_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
             page.screenshot(path=str(screenshot_path))
             print(f"✓ Screenshot saved: {screenshot_path}")
             
-            # Find product cards
+            # Find product cards - try multiple selectors
             products = []
             
-            # Try multiple selectors
             selectors = [
                 '[data-component-type="s-search-result"]',
-                '.s-result-item',
-                '[data-asin]',
-                '.a-section.a-spacing-base'
+                '.s-result-item[data-asin]',
+                'div[data-asin]',
+                '.a-section.a-spacing-base',
+                '.a-spacing-base',
+                '.rush-component',
+                'div[class*="s-result-item"]'
             ]
             
             product_elements = []
             for selector in selectors:
-                product_elements = page.query_selector_all(selector)
-                if len(product_elements) > 5:
-                    print(f"✓ Found {len(product_elements)} products using: {selector}")
-                    break
+                try:
+                    product_elements = page.query_selector_all(selector)
+                    if product_elements and len(product_elements) > 2:
+                        print(f"✓ Found {len(product_elements)} products using: {selector}")
+                        break
+                except:
+                    continue
             
             if not product_elements:
-                print("✗ No products found")
+                print(f"✗ No products found with any selector. Page title: {page.title()}")
+                # Try to get any visible text to debug
+                try:
+                    body_text = page.inner_text('body')[:500]
+                    print(f"Page content preview: {body_text}")
+                except:
+                    pass
                 return []
             
             # Extract product data
@@ -478,7 +495,7 @@ class AmazonPriceTracker:
                     text = element.inner_text()
                     
                     # Extract product name
-                    name_elem = element.query_selector('h2, .a-size-medium, .a-size-base-plus')
+                    name_elem = element.query_selector('h2, .a-size-medium, .a-size-base-plus, span.a-text-normal')
                     name = name_elem.inner_text() if name_elem else None
                     
                     if not name or len(name) < 5:
@@ -521,7 +538,7 @@ class AmazonPriceTracker:
                         'rating': rating,
                         'category': category,
                         'timestamp': datetime.now().isoformat(),
-                        'is_deal': self.is_deal(price, discount)
+                        'is_deal': self.is_deal(price, discount, name)
                     }
                     
                     # Only keep if it's actually a deal and a good one
@@ -537,8 +554,11 @@ class AmazonPriceTracker:
             return products
             
         except Exception as e:
-            print(f"✗ Error scraping {category}: {e}")
+            print(f"Error scraping {category}: {e}")
             return []
+        finally:
+            # Delay between scrapes
+            time.sleep(random.uniform(3, 5))
     
     def is_deal(self, price, discount, name=""):
         """Check if product qualifies as a REAL deal (not just any product)"""
@@ -690,12 +710,44 @@ class AmazonPriceTracker:
         print("="*60)
         
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process'
+                ]
+            )
             context = browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+                locale='en-IN',
+                timezone_id='Asia/Kolkata',
+                extra_http_headers={
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'sec-ch-ua': '"Chromium";v="134", "Not:A-Brand";v="24", "Google Chrome";v="134"',
+                    'sec-ch-ua-mobile': '?0',
+                    'sec-ch-ua-platform': '"Windows"',
+                    'sec-fetch-dest': 'document',
+                    'sec-fetch-mode': 'navigate',
+                    'sec-fetch-site': 'none',
+                    'sec-fetch-user': '?1',
+                    'upgrade-insecure-requests': '1'
+                }
             )
             page = context.new_page()
+            
+            # Hide webdriver flag
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+                window.chrome = { runtime: {} };
+            """)
             
             try:
                 # Custom search query
