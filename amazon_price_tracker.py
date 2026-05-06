@@ -540,8 +540,13 @@ class AmazonPriceTracker:
             print(f"✗ Error scraping {category}: {e}")
             return []
     
-    def is_deal(self, price, discount):
+    def is_deal(self, price, discount, name=""):
         """Check if product qualifies as a REAL deal (not just any product)"""
+        
+        # 🚨 RTX 5060 Exception: Even small discounts are valuable for expensive laptops
+        if name and 'rtx' in name.lower() and '5060' in name:
+            return discount >= 5  # Alert if even 5% off
+            
         if discount <= 0:
             return False
         # Must either be cheap OR have significant discount
@@ -1188,7 +1193,6 @@ All tracked products have the same prices as before.
                     message += f"   ⚠️ Threshold: ₹{deal['glitch_threshold']:,}\n"
                 if deal.get('link'):
                     message += f"   <a href='{deal['link']}'>View Deal</a>\n"
-"""
         
         max_deals_per_cat = CONFIG.get('telegram_deals_per_category', 15)
         
