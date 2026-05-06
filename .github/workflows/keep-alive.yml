@@ -5,11 +5,9 @@ name: Keep Repository Active
 # Runs at 12:00 UTC (5:30 PM IST) daily
 
 on:
-  schedule:
-    # Run daily at 12:00 UTC (5:30 PM IST) to keep repo active
-    - cron: '0 12 * * *'
+  # schedule:
+  #   - cron: '0 12 * * *'  # DISABLED
   
-  # Allow manual trigger
   workflow_dispatch:
 
 jobs:

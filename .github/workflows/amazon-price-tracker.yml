@@ -1,11 +1,9 @@
 name: Amazon Price Tracker
 
 on:
-  schedule:
-    # Run once daily at 6:00 PM IST (12:30 UTC)
-    # Note: GitHub pauses scheduled workflows if repo is inactive for 60+ days
-    # To reactivate: Manually trigger the workflow once via workflow_dispatch
-    - cron: '30 12 * * *'
+  # schedule:
+  #   # Run once daily at 6:00 PM IST (12:30 UTC) - DISABLED for debugging
+  #   - cron: '30 12 * * *'
   
   # Trigger on push to main branch (keeps workflow active)
   push:
@@ -15,8 +13,7 @@ on:
       - 'amazon_price_tracker.py'
       - '.github/workflows/amazon-price-tracker.yml'
   
-  # Allow manual trigger (use this to "wake up" scheduled workflows)
-  # IMPORTANT: If scheduled runs aren't working, manually trigger this once
+  # Allow manual trigger
   workflow_dispatch:
     inputs:
       search_query:
