@@ -33,9 +33,22 @@ CONFIG = {
     'price_threshold': 500,  # Alert for products under ₹500
     'discount_threshold': 50,  # Alert for >50% discount
     'price_drop_threshold': 20,  # Alert if price drops by >20%
-    'max_products': 20,  # Reduced to handle many categories efficiently
+    'glitch_drop_threshold': 40,  # 🚨 ALERT if price drops >40% from history (Pricing Error)
+    'max_products': 25,  # Increased for Lightning Deals
     'only_new_deals': True,  # Only alert on NEW deals or price drops
     'telegram_deals_per_category': 15,  # Number of deals to show per category in Telegram (max 4096 chars)
+    
+    # 🚨 Absolute Price Glitch Thresholds (If item drops below this, it's likely an error)
+    'glitch_price_thresholds': {
+        'laptop': 10000,      # Laptops under ₹10k
+        'phone': 5000,        # Phones under ₹5k
+        'tv': 15000,          # TVs under ₹15k
+        'headphone': 500,     # Headphones under ₹500
+        'watch': 2000,        # Smartwatches under ₹2k
+        'tablet': 5000,       # Tablets under ₹5k
+        'default': 100        # Default threshold for unclassified items
+    },
+    
     'categories': [
         # Electronics & Computers
         'electronics',
@@ -183,6 +196,8 @@ class AmazonPriceTracker:
         self.price_history = self.load_price_history()
         self.new_deals = []
         self.price_drops = []
+        self.glitch_alerts = []
+        self.price_errors = []
         self.screenshots_dir = Path('screenshots')
         self.screenshots_dir.mkdir(exist_ok=True)
     
@@ -664,7 +679,7 @@ class AmazonPriceTracker:
             }
     
     def scrape_all_deals(self):
-        """Scrape deals from multiple sources"""
+        """Scrape deals from multiple sources - Focus on Lightning Deals"""
         print("\n" + "="*60)
         print("AMAZON PRICE TRACKER - STARTING")
         print("="*60)
@@ -684,26 +699,26 @@ class AmazonPriceTracker:
                     products = self.scrape_deals_page(page, url, 'custom_search')
                     self.deals.extend(products)
                 
-                # Today's Deals
+                # 🚨 PRIORITY 1: Lightning Deals (Most likely to have pricing errors)
                 url = "https://www.amazon.in/gp/goldbox"
-                products = self.scrape_deals_page(page, url, 'todays_deals')
-                self.deals.extend(products)
-                
-                # Lightning Deals
-                url = "https://www.amazon.in/gp/goldbox?deals-widget=%257B%2522version%2522%253A1%252C%2522viewIndex%2522%253A0%252C%2522presetId%2522%253A%2522deals-collection-lightning-deals%2522%257D"
+                print(f"\n{'='*60}")
+                print("🔥 PRIORITY: LIGHTNING DEALS / GOLDEN BOX")
+                print(f"{'='*60}")
                 products = self.scrape_deals_page(page, url, 'lightning_deals')
                 self.deals.extend(products)
                 
-                # Search queries
-                for query in CONFIG['search_queries']:
-                    url = f"https://www.amazon.in/s?k={query.replace(' ', '+')}"
-                    products = self.scrape_deals_page(page, url, query.replace(' ', '_'))
-                    self.deals.extend(products)
-                    time.sleep(random.uniform(1.0, 2.0))  # Random rate limiting
+                # Lightning Deals Collection
+                url = "https://www.amazon.in/gp/goldbox?deals-widget=%257B%2522version%2522%253A1%252C%2522viewIndex%2522%253A0%252C%2522presetId%2522%253A%2522deals-collection-lightning-deals%2522%257D"
+                products = self.scrape_deals_page(page, url, 'lightning_deals_collection')
+                self.deals.extend(products)
                 
-                # Electronics with adaptive discount
-                electronics_products = self.scrape_electronics_adaptive(page)
-                self.deals.extend(electronics_products)
+                # 🚨 PRIORITY 2: Deal of the Day
+                url = "https://www.amazon.in/deals"
+                print(f"\n{'='*60}")
+                print("📅 PRIORITY: DEAL OF THE DAY")
+                print(f"{'='*60}")
+                products = self.scrape_deals_page(page, url, 'deal_of_the_day')
+                self.deals.extend(products)
                 
                 # RTX 5060 Gaming Laptops - dedicated search
                 rtx_queries = [
@@ -713,27 +728,18 @@ class AmazonPriceTracker:
                     'rtx 5060 laptop 144hz'
                 ]
                 print(f"\n{'='*60}")
-                print("RTX 5060 GAMING LAPTOPS")
+                print("🎮 RTX 5060 GAMING LAPTOPS")
                 print(f"{'='*60}")
                 for q in rtx_queries:
                     url = f"https://www.amazon.in/s?k={q.replace(' ', '+')}"
                     products = self.scrape_deals_page(page, url, f'rtx5060_{q.replace(" ", "_")}')
                     if products:
-                        # Filter for actual RTX 5060 laptops with good discounts
+                        # Filter for actual RTX 5060 laptops
                         for p in products:
                             if 'rtx' in p.get('name', '').lower() and '5060' in p.get('name', ''):
                                 p['category'] = 'rtx5060_laptops'
                                 self.deals.append(p)
-                        print(f"✓ Found {len([p for p in products if 'rtx' in p.get('name','').lower()])} RTX 5060 products")
                     time.sleep(random.uniform(1.0, 2.0))
-                
-                # Scrape deals from all categories
-                category_deals = self.scrape_category_deals(page)
-                self.deals.extend(category_deals)
-                
-                # Scrape Amazon Fresh deals
-                fresh_deals = self.scrape_amazon_fresh(page)
-                self.deals.extend(fresh_deals)
                 
             finally:
                 browser.close()
@@ -951,46 +957,51 @@ class AmazonPriceTracker:
         return all_fresh_deals
     
     def analyze_deals(self):
-        """Analyze and categorize deals"""
+        """Analyze and categorize deals - Focus on Glitch/Error Detection"""
         if not self.deals:
             print("No deals to analyze")
             return
         
         print("\n" + "="*60)
-        print("DEAL ANALYSIS")
+        print("DEAL ANALYSIS - GLITCH DETECTION MODE")
         print("="*60)
         
-        # Separate by category type
-        electronics_deals = [d for d in self.deals if d.get('category') == 'electronics_featured']
-        fresh_deals = [d for d in self.deals if d.get('category', '').startswith('fresh_')]
-        other_deals = [d for d in self.deals if d.get('category') != 'electronics_featured' and not d.get('category', '').startswith('fresh_')]
+        # 🚨 PRICE ERROR / GLITCH DETECTION
+        self.glitch_alerts = []
+        self.price_errors = []
         
-        print(f"Total Deals Scraped: {len(self.deals)}")
-        print(f"  - Electronics: {len(electronics_deals)}")
-        print(f"  - Amazon Fresh: {len(fresh_deals)}")
-        print(f"  - Other Deals: {len(other_deals)}")
-        
-        # Category breakdown
-        category_counts = {}
-        for deal in self.deals:
-            cat = deal.get('category', 'unknown')
-            category_counts[cat] = category_counts.get(cat, 0) + 1
-        
-        if category_counts:
-            print(f"\nCategory Breakdown:")
-            sorted_categories = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)
-            for cat, count in sorted_categories[:15]:  # Show top 15 categories
-                print(f"  - {cat}: {count} deals")
-            if len(sorted_categories) > 15:
-                print(f"  ... and {len(sorted_categories) - 15} more categories")
-        
-        # Check each deal for price changes
+        # Check each deal for price changes AND glitches
         for deal in self.deals:
             change_type = self.check_price_change(deal)
             deal['change_type'] = change_type
             
             # Update price history (but don't mark as alerted yet)
             self.update_price_history(deal)
+            
+            # 🚨 GLITCH DETECTION 1: Instant Price Drop (>40% from history)
+            product_key = self.get_product_key(deal)
+            if product_key in self.price_history:
+                old_data = self.price_history[product_key]
+                old_price = old_data.get('price', 0)
+                if old_price > 0:
+                    drop_pct = ((old_price - deal['price']) / old_price) * 100
+                    if drop_pct >= CONFIG['glitch_drop_threshold']:
+                        deal['glitch_type'] = 'PRICE_ERROR'
+                        deal['old_price'] = old_price
+                        deal['drop_pct'] = round(drop_pct, 1)
+                        self.glitch_alerts.append(deal)
+                        print(f"🚨 PRICE ERROR: {deal['name'][:50]} (₹{old_price} → ₹{deal['price']}, -{drop_pct:.1f}%)")
+            
+            # 🚨 GLITCH DETECTION 2: Absolute Price Thresholds
+            name_lower = deal.get('name', '').lower()
+            for keyword, threshold in CONFIG['glitch_price_thresholds'].items():
+                if keyword != 'default' and keyword in name_lower:
+                    if deal['price'] <= threshold:
+                        deal['glitch_type'] = 'ABSOLUTE_GLITCH'
+                        deal['glitch_threshold'] = threshold
+                        self.price_errors.append(deal)
+                        print(f"🚨 ABSOLUTE GLITCH: {deal['name'][:50]} (₹{deal['price']} <= ₹{threshold})")
+                        break
             
             # Categorize - only add if it's truly new or has a price drop
             if change_type == 'new':
@@ -1005,8 +1016,8 @@ class AmazonPriceTracker:
         # Filter deals based on config - ONLY new deals and price drops
         alert_worthy = self.new_deals + self.price_drops
         
-        if not alert_worthy:
-            print("\n✗ No new deals or price drops to alert")
+        if not alert_worthy and not self.glitch_alerts and not self.price_errors:
+            print("\n✗ No new deals, price drops, or glitches to alert")
             return {
                 'total': len(self.deals),
                 'new': 0,
@@ -1015,7 +1026,10 @@ class AmazonPriceTracker:
                 'high_discount': 0,
                 'alert_deals': [],
                 'electronics_alerts': [],
-                'fresh_alerts': []
+                'fresh_alerts': [],
+                'rtx5060_alerts': [],
+                'glitch_alerts': self.glitch_alerts,
+                'price_errors': self.price_errors
             }
         
         # Further filter by thresholds
@@ -1088,7 +1102,9 @@ class AmazonPriceTracker:
             'alert_deals': other_deals[:10],
             'electronics_alerts': electronics_alerts[:10],
             'fresh_alerts': fresh_deals_list[:10],
-            'rtx5060_alerts': rtx5060_alerts[:10]
+            'rtx5060_alerts': rtx5060_alerts[:10],
+            'glitch_alerts': self.glitch_alerts[:10],
+            'price_errors': self.price_errors[:10]
         }
     
     def format_category_name(self, category):
@@ -1147,12 +1163,31 @@ All tracked products have the same prices as before.
         electronics_alerts = analysis.get('electronics_alerts', [])
         fresh_alerts = analysis.get('fresh_alerts', [])
         rtx5060_alerts = analysis.get('rtx5060_alerts', [])
+        glitch_alerts = analysis.get('glitch_alerts', [])
+        price_errors = analysis.get('price_errors', [])
         
         message = f"""🛒 <b>Amazon Deals Alert</b>
 
 📊 <b>Summary:</b>
 • New Deals: {analysis['new']}
 • Price Drops: {analysis['price_drops']}
+• 🚨 Price Errors/Glitches: {len(glitch_alerts) + len(price_errors)}
+"""
+        
+        # 🚨 SHOW GLITCH ALERTS FIRST (Most Critical)
+        if glitch_alerts or price_errors:
+            message += f"\n🚨 <b>PRICE ERRORS / GLITCHES:</b>\n"
+            for i, deal in enumerate((glitch_alerts + price_errors)[:max_deals_per_cat], 1):
+                glitch_type = deal.get('glitch_type', 'UNKNOWN')
+                message += f"\n🚨 {glitch_type}\n"
+                message += f"{i}. {deal['name'][:80]}\n"
+                message += f"   💥 ₹{deal['price']:,} ({deal['discount']}% off)\n"
+                if 'old_price' in deal:
+                    message += f"   📉 Was: ₹{deal['old_price']:,} (dropped {deal.get('drop_pct', 0)}%)\n"
+                if 'glitch_threshold' in deal:
+                    message += f"   ⚠️ Threshold: ₹{deal['glitch_threshold']:,}\n"
+                if deal.get('link'):
+                    message += f"   <a href='{deal['link']}'>View Deal</a>\n"
 """
         
         max_deals_per_cat = CONFIG.get('telegram_deals_per_category', 15)
